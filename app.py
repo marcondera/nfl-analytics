@@ -12,7 +12,8 @@ st.set_page_config(
     initial_sidebar_state="collapsed" 
 )
 
-# --- A SEÇÃO 0 (INJEÇÃO DE CSS) FOI REMOVIDA PARA EVITAR O BUG ---
+# --- A SEÇÃO 0 (INJEÇÃO DE CSS) ESTÁ REMOVIDA PARA GARANTIR ESTABILIDADE ---
+
 
 # --- 1. CONFIGURAÇÃO DE LOGOS E API ---
 
@@ -31,11 +32,11 @@ LOGO_MAP = {
 def get_logo_url(team_abbr):
     """Gera a URL do logo da equipe a partir da abreviação."""
     base_url = "https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/"
-    slug = LOGO_MAP.get(team_abbr.upper(), 'nfl') # Usa 'nfl' como fallback
+    slug = LOGO_MAP.get(team_abbr.upper(), 'nfl')
     return f"{base_url}{slug}.png&h=40&w=40"
 
 
-# --- 2. FUNÇÕES AUXILIARES DE PROCESSAMENTO DE DADOS ---
+# --- 2. FUNÇÕES AUXILIARES DE PROCESSAMENTO DE DADOS (Inalteradas) ---
 
 def get_league_metadata():
     """Retorna informações estáticas da liga."""
@@ -52,10 +53,10 @@ def get_period_name(period):
 
 def get_event_data(event):
     """
-    Extrai e formata os dados principais de um único evento de forma ultra-robusta.
+    Extrai e formata os dados principais de um único evento.
+    (Conteúdo robusto mantido inalterado para brevidade)
     """
     
-    # Valores de segurança (default)
     data_formatada = "N/A"
     hora_formatada = "N/A"
     status_pt = "N/A"
@@ -66,19 +67,16 @@ def get_event_data(event):
         comp = event['competitions'][0]
         date_iso = comp.get('date')
 
-        # --- CORREÇÃO DE DATA/HORA (Usando isoparse) ---
         if date_iso:
             try:
                 dt_utc = isoparse(date_iso) 
-                dt_brt = dt_utc - pd.Timedelta(hours=3) # Converte para BRT (UTC-3)
+                dt_brt = dt_utc - pd.Timedelta(hours=3)
 
                 data_formatada = dt_brt.strftime('%d/%m/%Y')
                 hora_formatada = dt_brt.strftime('%H:%M') + ' BRT'
             except Exception:
                 pass 
-        # --- FIM DA CORREÇÃO DE DATA/HORA ---
 
-        # Extração do Status Principal
         status_type = comp.get('status', {}).get('type', {})
         status_en = status_type.get('description')
         
@@ -90,12 +88,10 @@ def get_event_data(event):
         }
         status_pt = status_map.get(status_en, status_en)
         
-        # Tentativa de extração do Detalhe Status da API
         detail_status_raw = comp.get('status', {}).get('detail')
         if detail_status_raw:
             detail_status = detail_status_raw
         
-        # --- LÓGICA DE CORREÇÃO/CONSTRUÇÃO DO DETALHE STATUS (Fallback) ---
         if status_pt == 'Em Andamento' and (detail_status == 'N/A' or not detail_status_raw):
             clock = comp.get('status', {}).get('displayClock', '')
             period_num = comp.get('status', {}).get('period', 0)
@@ -104,14 +100,10 @@ def get_event_data(event):
             if clock and period_name:
                 detail_status = f"{clock} - {period_name}"
             elif status_type.get('shortDetail'):
-                # Último fallback, usando shortDetail (ex: "Q3")
                 detail_status = status_type.get('shortDetail', 'Em Andamento')
         elif detail_status == 'N/A' and status_type.get('shortDetail'):
-             # Para outros status sem detail, o shortDetail pode ser melhor que N/A
             detail_status = status_type.get('shortDetail', 'N/A')
         
-        
-        # 2. Extração dos times e scores
         competitors = comp.get('competitors', [])
         home_team = {} 
         away_team = {} 
@@ -133,18 +125,15 @@ def get_event_data(event):
                 home_team = c1
                 away_team = c2
                 
-        # Extração de Scores e Nomes
         home_score = home_team.get('score', {}).get('displayValue', '0')
         away_score = away_team.get('score', {}).get('displayValue', '0')
         
-        # Usando a abreviação do time para os logos
         home_abbr = home_team.get('team', {}).get('abbreviation', 'N/A')
         away_abbr = away_team.get('team', {}).get('abbreviation', 'N/A')
 
         home_display_name = home_team.get('team', {}).get('displayName', 'Time Casa')
         away_display_name = away_team.get('team', {}).get('displayName', 'Time Visitante')
             
-        # Determinação do Vencedor
         if status_pt.startswith('Finalizado'):
             try:
                 if home_score.isdigit() and away_score.isdigit():
@@ -158,7 +147,6 @@ def get_event_data(event):
                     winner_team = "N/A"
             except Exception:
                 winner_team = "N/A"
-
 
         return {
             'Jogo': event.get('name', 'N/A'),
@@ -176,7 +164,6 @@ def get_event_data(event):
         }
         
     except Exception as e:
-        # Linha de ERRO para garantir que o app não quebre
         return {
             'Jogo': 'Erro de Estrutura de Dados',
             'Data': 'N/A',
@@ -229,7 +216,7 @@ def display_final_results_styled(df_results):
     # Define o número de colunas (3 cards por linha)
     cols = st.columns(3)
     
-    # CSS Customizado para Cards (Mantido aqui, mas pode ser removido e colocado em um st.markdown inicial se necessário)
+    # Estilos CSS dos cards (Injetados localmente para garantir renderização)
     card_styles = """
     <style>
     .result-card {
@@ -252,10 +239,10 @@ def display_final_results_styled(df_results):
     }
     </style>
     """
-    st.markdown(card_styles, unsafe_allow_html=True) # Injeta os estilos dos cards aqui
+    st.markdown(card_styles, unsafe_allow_html=True) 
 
     for i, row in df_results.iterrows():
-        col = cols[i % 3] # Distribui os cards entre as 3 colunas
+        col = cols[i % 3] 
         
         home_logo_url = get_logo_url(row['Abrev. Casa'])
         away_logo_url = get_logo_url(row['Abrev. Visitante'])
@@ -307,22 +294,24 @@ def main():
     
     league_name, current_season = get_league_metadata()
     
+    # --- DEFINIÇÕES DA SIDEBAR (FEITAS ANTES DAS COLUNAS PRINCIPAIS) ---
+    st.sidebar.header("Controles")
+    st.sidebar.markdown(f"**Liga:** {league_name}")
+    st.sidebar.markdown(f"**Temporada:** {current_season} (Todos os Eventos)")
+    st.sidebar.markdown("---")
+    
+    if st.sidebar.button("Recarregar Dados Agora"):
+        st.rerun() 
+    # ------------------------------------------------------------------
+
     # NOVO: Define colunas laterais vazias para criar a margem centralizada
     # 15% (margem esquerda) | 70% (conteúdo) | 15% (margem direita)
     col_left, col_center, col_right = st.columns([15, 70, 15]) 
 
-    # Todo o conteúdo do dashboard deve ir para a coluna central
+    # Todo o conteúdo principal do dashboard deve ir para a coluna central
     with col_center:
         st.title(f"🏈 Dashboard {league_name} - {current_season}")
         st.markdown("---")
-        
-        st.sidebar.header("Controles")
-        st.sidebar.markdown(f"**Liga:** {league_name}")
-        st.sidebar.markdown(f"**Temporada:** {current_season} (Todos os Eventos)")
-        st.sidebar.markdown("---")
-        
-        if st.sidebar.button("Recarregar Dados Agora"):
-            st.rerun() 
             
         df_events = load_data()
 
@@ -357,7 +346,6 @@ def main():
         ].sort_values(by='Data', ascending=False)
 
         if not df_finalized.empty:
-            # Exibe apenas os 9 resultados mais recentes nos cards
             display_final_results_styled(df_finalized.head(9))
         else:
             st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum resultado finalizado encontrado.</p>', unsafe_allow_html=True)
@@ -372,7 +360,6 @@ def main():
         ].sort_values(by='Data', ascending=True)
 
         if not df_scheduled.empty:
-            # Reutiliza a função de cards para agendados
             display_final_results_styled(df_scheduled.head(9))
         else:
             st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum jogo agendado nos dados fornecidos.</p>', unsafe_allow_html=True)
