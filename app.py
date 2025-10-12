@@ -74,11 +74,10 @@ def get_event_data(event):
         data_formatada = "N/A"
         hora_formatada = "N/A"
 
-    # --- CORREÇÃO FINAL PARA O ATTRIBUTEERROR ('NoneType' no home_team) ---
+    # --- CORREÇÃO DEFINITIVA DE ROBUSTEZ: SEM FALLBACK POSICIONAL PERIGOSO ---
     competitors = comp.get('competitors', [])
     
-    # 1. Tenta encontrar a equipe pela chave 'homeAway'. Se não encontrar, o default é um dicionário vazio {}.
-    # Isso garante que a variável home_team NUNCA será None.
+    # Garante que o default é SEMPRE um dicionário vazio {}, eliminando a chance de 'NoneType'
     home_team = next(
         (c for c in competitors if isinstance(c, dict) and c.get('homeAway') == 'home'), 
         {}
@@ -87,14 +86,9 @@ def get_event_data(event):
         (c for c in competitors if isinstance(c, dict) and c.get('homeAway') == 'away'), 
         {}
     )
+    # --------------------------------------------------------------------------
 
-    # 2. Se a busca por 'homeAway' falhou (resultando em {}) e a lista tem itens, usa o fallback posicional.
-    if not home_team and len(competitors) > 0 and isinstance(competitors[0], dict):
-        home_team = competitors[0]
-    if not away_team and len(competitors) > 1 and isinstance(competitors[1], dict):
-        away_team = competitors[1]
-        
-    # Extração de Scores (agora seguro, pois home_team é garantido ser um dict)
+    # Extração de Scores (AGORA SEGURO)
     home_score = home_team.get('score', {}).get('displayValue', '0')
     away_score = away_team.get('score', {}).get('displayValue', '0')
     
