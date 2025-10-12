@@ -8,56 +8,13 @@ from dateutil.parser import isoparse
 # Configuração da página
 st.set_page_config(
     page_title="NFL Dashboard",
-    layout="wide", # Essencial para que a largura funcione
+    layout="wide",
     initial_sidebar_state="collapsed" 
 )
 
-# --- CORREÇÃO DE LAYOUT CSS ESTÁVEL ---
-# Força a centralização e largura máxima, o que evita o bug constante do Streamlit.
-st.markdown("""
-<style>
-/* Centraliza o bloco principal do aplicativo e define a largura MÁXIMA */
-div[data-testid="stVerticalBlock"] {
-    width: 100%;
-    max-width: 1000px; /* Largura máxima desejada para centralizar o conteúdo */
-    margin: 0 auto; /* Força a centralização horizontal */
-}
-
-/* Remove o padding lateral do container principal para usar a largura total de 1000px */
-.block-container {
-    padding-top: 2rem;
-    padding-bottom: 2rem;
-    padding-left: 0rem;
-    padding-right: 0rem;
-}
-
-.result-card {
-    border: 1px solid #ddd;
-    padding: 15px;
-    margin-bottom: 10px;
-    border-radius: 8px;
-    background-color: #f9f9f9;
-    box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
-}
-.home-team, .away-team {
-    font-weight: bold;
-}
-.score {
-    font-size: 1.2em;
-    font-weight: bold;
-}
-.game-info {
-    font-size: 0.9em;
-    color: #555;
-}
-</style>
-""", unsafe_allow_html=True)
-# -------------------------------------------------------------
-
-
 # --- 1. CONFIGURAÇÃO DE LOGOS E API ---
 
-# VOLTAMOS À URL ORIGINAL DA API
+# A URL da API permanece a mesma, focada nos eventos de 2025
 API_URL_EVENTS_2025 = "https://partners.api.espn.com/v2/sports/football/nfl/events?dates=2025"
 
 # Mapeamento para garantir que abreviações sejam traduzidas corretamente para a URL do logo
@@ -66,37 +23,30 @@ LOGO_MAP = {
     "CHI": "chi", "CLE": "cle", "DAL": "dal", "DEN": "den", "det": "det", "GB": "gb", 
     "HOU": "hou", "IND": "ind", "JAX": "jac", "KC": "kc", "LAC": "lac", "LAR": "lar", 
     "LV": "rai", "MIA": "mia", "MIN": "min", "NE": "ne", "NO": "no", "NYG": "nyg", 
-    "NYJ": "nyj", "PHI": "phi", "PIT": "pit", "SEA": "sea", "TB": "tb", "TEN": "ten", 
-    "WAS": "was", "ARI": "ari", "WSH": "wsh", "DET": "det"
+    "NYJ": "nyj", "PHI": "phi", "PIT": "pit", "SEA": "sea", "tb": "tb", "TEN": "ten", 
+    "WAS": "wsh", "ARI": "ari", "WSH": "wsh", "TB": "tb", "DET": "det" 
 }
 
-def get_logo_url(team_abbr):
-    """Gera a URL do logo da equipe a partir da abreviação."""
-    base_url = "https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/"
-    slug = LOGO_MAP.get(team_abbr.upper(), 'nfl')
-    return f"{base_url}{slug}.png&h=40&w=40"
+def get_logo_url(abbreviation):
+    """Gera a URL do logo (500x500) para melhor resolução, ajustada via HTML."""
+    abbr = LOGO_MAP.get(abbreviation.upper(), abbreviation.lower())
+    return f"https://a.espncdn.com/i/teamlogos/nfl/500/{abbr}.png"
 
 
-# --- 2. FUNÇÕES AUXILIARES DE PROCESSAMENTO DE DADOS (Inalteradas) ---
-
-def get_league_metadata():
-    """Retorna informações estáticas da liga."""
-    return 'NFL', '2025'
+# --- 2. FUNÇÕES DE PROCESSAMENTO DE DADOS ---
 
 def get_period_name(period):
     """Mapeia o número do período para o nome do Quarto/Overtime."""
-    if period == 1: return "1º Quarto"
-    if period == 2: return "2º Quarto"
-    if period == 3: return "3º Quarto"
-    if period == 4: return "4º Quarto"
-    if period > 4: return "Prorrogação"
+    if period == 1: return "1st Quarter"
+    if period == 2: return "2nd Quarter"
+    if period == 3: return "3rd Quarter"
+    if period == 4: return "4th Quarter"
+    if period > 4: return "OT"
     return ""
 
 def get_event_data(event):
-    """
-    Extrai e formata os dados principais de um único evento.
-    (Lógica mantida como no seu arquivo)
-    """
+    """Extrai e formata os dados principais de um único evento."""
+
     data_formatada = "N/A"
     status_pt = "N/A"
     winner_team_abbr = "A definir"
@@ -112,12 +62,14 @@ def get_event_data(event):
             try:
                 dt_utc = isoparse(date_iso) 
                 dt_brt = dt_utc - pd.Timedelta(hours=3)
+
                 data_formatada = dt_brt.strftime('%d/%m/%Y')
             except Exception:
                 pass 
 
         status = comp.get('status', {}) 
         status_type = status.get('type', {})
+
         status_text_check = str(status_type).lower() 
 
         if 'final' in status_text_check:
@@ -163,15 +115,8 @@ def get_event_data(event):
             else:
                 home_team, away_team = c1, c2
 
-        try:
-            home_score = int(home_team.get('score', {}).get('value', 0.0))
-        except (TypeError, ValueError):
-            home_score = 0
-            
-        try:
-            away_score = int(away_team.get('score', {}).get('value', 0.0))
-        except (TypeError, ValueError):
-            away_score = 0
+        home_score = int(home_team.get('score', {}).get('value', 0.0))
+        away_score = int(away_team.get('score', {}).get('value', 0.0))
 
         home_team_abbr = home_team.get('team', {}).get('abbreviation', 'CASA')
         away_team_abbr = away_team.get('team', {}).get('abbreviation', 'FORA')
@@ -198,164 +143,287 @@ def get_event_data(event):
         }
 
     except Exception as e:
+        # print(f"Erro ao processar evento: {e}") # Para debug
         return {
             'Jogo': 'Erro de Estrutura de Dados', 'Data': 'N/A',
             'Status': 'ERRO', 'Casa': 'ERRO', 'Visitante': 'ERRO',
             'Vencedor': 'N/A', 'Score Casa': 'N/A', 'Score Visitante': 'N/A',
-            'Detalhe Status': f'Falha na extração: {type(e).__name__}',
+            'Detalhe Status': 'Falha na extração',
         }
 
+
 def load_data(api_url=API_URL_EVENTS_2025):
-    """
-    Busca e normaliza os dados da API de Events da ESPN (2025)
-    **USANDO REQUISIÇÃO REAL À API.**
-    """
-    
-    st.info(f"Buscando eventos da NFL 2025 (URL: {api_url})...")
-    
+    """Busca dados EXCLUSIVAMENTE na API."""
     try:
+        # Tenta buscar os dados da API
         response = requests.get(api_url)
+        # Levanta uma exceção para códigos de status HTTP ruins (4xx ou 5xx)
         response.raise_for_status() 
         data = response.json()
-        
     except requests.exceptions.RequestException as e:
-        st.error(f"Erro ao buscar dados da API. Verifique a URL e autenticação: {e}")
+        # Exibe erro no Streamlit se a chamada de rede falhar
+        st.error(f"❌ Erro ao buscar dados da API. Verifique a URL ou a conexão de rede: {e}")
         return pd.DataFrame()
-    except json.JSONDecodeError:
-        st.error("Erro ao decodificar a resposta como JSON.")
+    except json.JSONDecodeError as e:
+        # Exibe erro se o retorno da API não for um JSON válido
+        st.error(f"❌ Erro ao decodificar JSON da API: {e}")
         return pd.DataFrame()
 
     events_list = data.get('events', [])
-    
-    if not events_list:
-        st.info("Nenhum evento encontrado na API de Events para 2025.")
-        return pd.DataFrame()
-        
     events_data = [get_event_data(e) for e in events_list]
+    # Remove qualquer entrada que tenha falhado na extração (retornou None ou a estrutura de ERRO)
     events_data = [item for item in events_data if item is not None and item['Status'] != 'ERRO']
-        
+
+    if not events_data:
+        st.warning("A API retornou dados, mas a lista de eventos está vazia ou todos os eventos falharam na extração.")
+        return pd.DataFrame()
+
     df = pd.DataFrame(events_data)
     return df
 
-# --- FUNÇÃO DE ESTILIZAÇÃO (CARDS) ---
+# --- 3. FUNÇÕES DE RENDERIZAÇÃO CUSTOMIZADA ---
 
-def display_final_results_styled(df_results):
-    """Exibe resultados em um formato de card estilizado com HTML/CSS e colunas."""
-    
-    # Define o número de colunas (3 cards por linha)
-    cols = st.columns(3)
+def display_final_results_styled(df_finalized):
+    """
+    Renderiza os resultados em layout 3x1 (Ao Vivo, Finalizados, Agendados).
+    Layout compacto, sem a tag "nfl-card" e sem a tag "game-container".
+    Os estilos de card são aplicados ao container nativo do Streamlit.
+    """
 
-    for i, row in df_results.iterrows():
-        col = cols[i % 3] 
-        
-        home_logo_url = get_logo_url(row['Casa'])
-        away_logo_url = get_logo_url(row['Visitante'])
-        
-        status_text = row['Detalhe Status']
-        if row['Status'].startswith('Finalizado'):
-            status_style = 'color: #1a9953; font-weight: bold;'
-        elif row['Status'] == 'Agendado':
-             status_style = 'color: #ff9900; font-weight: bold;'
-        else:
-            status_style = 'color: #007bff; font-weight: bold;'
+    rows = [row for index, row in df_finalized.iterrows()]
 
-        # Monta o HTML do card
-        card_html = f"""
-        <div class="result-card">
-            <div style="text-align: center; margin-bottom: 10px; {status_style}">
-                {status_text}
-            </div>
+    # CSS com ajustes para layout mais compacto, SEM AS CLASSES CUSTOMIZADAS DE CONTAINER
+    st.markdown("""
+        <style>
+            .stApp {
+                background-color: #0E1117; 
+            }
             
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                <div class="home-team" style="display: flex; align-items: center;">
-                    <img src="{home_logo_url}" style="margin-right: 5px; height: 30px; width: 30px;"/>
-                    {row['Casa']} 
-                </div>
-                <div class="score">{row['Score Casa']}</div>
-            </div>
-            
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div class="away-team" style="display: flex; align-items: center;">
-                    <img src="{away_logo_url}" style="margin-right: 5px; height: 30px; width: 30px;"/>
-                    {row['Visitante']} 
-                </div>
-                <div class="score">{row['Score Visitante']}</div>
-            </div>
-            
-            <div class="game-info" style="text-align: center; margin-top: 10px;">
-                Jogo: {row['Data']}
-            </div>
-        </div>
-        """
-        
-        col.markdown(card_html, unsafe_allow_html=True)
+            /* Novo seletor para aplicar o estilo de "card" ao bloco de conteúdo DENTRO da coluna */
+            /* Isso substitui a necessidade da div <div class="game-container"> */
+            /* Nota: o seletor exato pode variar ligeiramente em versões futuras do Streamlit */
+            [data-testid="stVerticalBlock"] > div {
+                background-color: #282A36 !important; 
+                border-radius: 12px !important; 
+                padding: 12px 15px !important; 
+                margin: 5px 0 !important; /* Espaçamento entre os cards */
+                box-shadow: 0 2px 5px rgba(0,0,0,0.4) !important;
+                color: #FAFAFA !important;
+            }
+
+            /* Forçar o style do Streamlit a aceitar a estilização do padding em colunas */
+            .st-emotion-cache-1kyxisp, .st-emotion-cache-1r6ps53 {
+                padding-left: 0.5rem;
+                padding-right: 0.5rem;
+            }
+
+            .nfl-date-status {
+                font-size: 11px;
+                color: #B0B0B0; 
+                text-align: center;
+                margin-bottom: 8px !important;
+                border-bottom: 1px solid #333;
+                padding-bottom: 5px;
+            }
+            .nfl-team-block {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 8px;
+            }
+            .nfl-team-info {
+                display: flex;
+                align-items: center;
+                margin-right: 15px; 
+                max-width: 180px; 
+            }
+            .nfl-score {
+                font-size: 20px; 
+                font-weight: 500;
+                color: #888888; 
+                text-align: right;
+            }
+            .nfl-score-winner {
+                font-size: 24px; 
+                font-weight: 900; 
+                color: #69be28; 
+                text-align: right;
+            }
+            .nfl-abbr {
+                font-size: 16px; 
+                font-weight: 700;
+                color: #FAFAFA;
+                margin-left: 10px;
+                white-space: nowrap;
+                overflow: hidden;
+            }
+            .nfl-footer {
+                font-size: 10px;
+                color: #B0B0B0;
+                text-align: center;
+                margin-top: 5px;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # Processa em grupos de 3 para o layout de colunas
+    for i in range(0, len(rows), 3):
+
+        cols = st.columns(3, gap="small")
+        chunk = rows[i:i+3]
+
+        for j, row in enumerate(chunk):
+            with cols[j]:
+
+                is_home_winner = row['Vencedor'] == row['Casa']
+                is_away_winner = row['Vencedor'] == row['Visitante']
+
+                # Definir Status do Detalhe
+                if row['Status'] == 'Agendado':
+                    status_display = f'⏰ {row["Data"]} | {row["Detalhe Status"]}'
+                elif row['Status'] == 'Em Andamento':
+                    status_display = f'🔴 AO VIVO | {row["Detalhe Status"]}'
+                else: # Finalizado
+                    status_display = f'✅ {row["Detalhe Status"]}'
 
 
-# --- 3. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
+                # --- O CONTEÚDO AGORA ESTÁ DIRETAMENTE NA COLUNA, SEM O WRAPPER game-container ---
+
+                # 1. Data/Status
+                st.markdown(f'<p class="nfl-date-status">{status_display}</p>', unsafe_allow_html=True)
+
+                # 2. Time Visitante
+                away_score_class = "nfl-score-winner" if is_away_winner else "nfl-score"
+                score_away = row["Score Visitante"] if row['Status'] != 'Agendado' else '-'
+                
+                st.markdown(
+                    f"""
+                    <div class="nfl-team-block">
+                        <div class="nfl-team-info">
+                            <img src="{get_logo_url(row['Visitante'])}" width="30" height="30" style="margin-right: 5px;">
+                            <span class="nfl-abbr">{row['Visitante']}</span>
+                        </div>
+                        <span class="{away_score_class}">{score_away}</span>
+                    </div>
+                    """, unsafe_allow_html=True
+                )
+
+                # 3. Time Casa
+                home_score_class = "nfl-score-winner" if is_home_winner else "nfl-score"
+                score_home = row["Score Casa"] if row['Status'] != 'Agendado' else '-'
+
+                st.markdown(
+                    f"""
+                    <div class="nfl-team-block">
+                        <div class="nfl-team-info">
+                            <img src="{get_logo_url(row['Casa'])}" width="30" height="30" style="margin-right: 5px;">
+                            <span class="nfl-abbr">{row['Casa']}</span>
+                        </div>
+                        <span class="{home_score_class}">{score_home}</span>
+                    </div>
+                    """, unsafe_allow_html=True
+                )
+
+                # 4. Rodapé (Nome Completo do Jogo)
+                st.markdown(f'<p class="nfl-footer">{row["Jogo"]}</p>', unsafe_allow_html=True)
+
+                # FIM DO CONTEÚDO
+
+def display_season_history_table(df_history):
+    """
+    Renderiza a tabela completa e estilizada dos jogos finalizados da temporada.
+    """
+    # 1. Seleciona e Renomeia colunas para PT-BR
+    df_table = df_history[
+        ['Data', 'Casa', 'Score Casa', 'Visitante', 'Score Visitante', 'Vencedor', 'Detalhe Status', 'Jogo']
+    ].rename(columns={
+        'Score Casa': 'Placar Casa',
+        'Score Visitante': 'Placar Fora',
+        'Detalhe Status': 'Status',
+        'Visitante': 'Time Visitante',
+        'Casa': 'Time Casa'
+    })
+
+    # 2. Renderiza a tabela com o Streamlit, configurando as colunas
+    st.dataframe(
+        df_table, 
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Data": st.column_config.TextColumn("Data", width="small"),
+            "Time Casa": st.column_config.TextColumn("Time Casa", width="small"),
+            "Placar Casa": st.column_config.NumberColumn("Placar Casa", format="%d", width="small"),
+            "Time Visitante": st.column_config.TextColumn("Time Visitante", width="small"),
+            "Placar Fora": st.column_config.NumberColumn("Placar Fora", format="%d", width="small"),
+            "Vencedor": st.column_config.TextColumn("Vencedor", width="small"),
+            "Status": st.column_config.TextColumn("Status", width="small"),
+            "Jogo": st.column_config.TextColumn("Jogo", width="large") # Jogo completo
+        }
+    )
+
+# --- 4. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
 
 def main():
-    
-    league_name, current_season = get_league_metadata()
-    
-    # --- DEFINIÇÕES DA SIDEBAR ---
-    st.sidebar.header("Controles")
-    st.sidebar.markdown(f"**Liga:** {league_name}")
-    st.sidebar.markdown(f"**Temporada:** {current_season} (Todos os Eventos)")
-    st.sidebar.markdown("---")
-    
-    if st.sidebar.button("Recarregar Dados Agora"):
-        st.rerun() 
-    # -----------------------------
 
-    # O CONTEÚDO AGORA ESTÁ DIRETAMENTE NA PÁGINA COM CENTRALIZAÇÃO POR CSS
-    st.title(f"🏈 Dashboard {league_name} - {current_season}")
-    st.markdown("---")
-        
-    df_events = load_data()
+    # Injeta CSS Global para o fundo e CENTRALIZAÇÃO DE TEXTOS
+    st.markdown("""
+        <style>
+            /* Centraliza H1 (Título Principal) */
+            h1 {
+                text-align: center;
+                padding-top: 0px !important;
+                margin-top: 0px !important;
+                margin-bottom: 1rem;
+            }
+            /* Centraliza H2 (Títulos das Seções) */
+            h2 {
+                text-align: center;
+                margin-top: 1.5rem; 
+                margin-bottom: 0.5rem; 
+            }
+            /* Ajusta padding superior do container principal do Streamlit */
+            .css-1d3f0g2 { 
+                padding-top: 1.5rem; 
+            }
+            /* Estilo para a linha divisória (---) */
+            hr {
+                margin-top: 2rem;
+                margin-bottom: 2rem;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.title("🏈 Resultados da NFL")
+
+    df_events = load_data() 
 
     if df_events.empty:
-        st.warning("Não foi possível carregar os dados. Verifique a API.")
+        st.error("Não foi possível carregar os dados. O dashboard não será exibido. Por favor, verifique as mensagens de erro acima.")
         return
 
-    # --- MÉTRICAS (KPIS) ---
-    st.header("Visão Geral do Status dos Jogos")
-    
-    status_counts = df_events['Status'].value_counts()
-    
-    total_games = len(df_events)
-    finalizados = status_counts.get('Finalizado', 0) + status_counts.get('Finalizado (OT)', 0)
-    em_andamento = status_counts.get('Em Andamento', 0)
-    agendados = status_counts.get('Agendado', 0)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total de Jogos", total_games)
-    col2.metric("Finalizados", finalizados)
-    col3.metric("Em Andamento", em_andamento)
-    col4.metric("Agendados", agendados)
+    # --- JOGOS AO VIVO (EM ANDAMENTO) ---
 
-    st.markdown("---")
-    
-    # --- JOGOS EM ANDAMENTO ---
-    st.header("▶️ Jogos ao Vivo")
-    df_in_progress = df_events[
-        df_events['Status'] == 'Em Andamento'
-    ].sort_values(by='Detalhe Status', ascending=False)
-    
+    st.header("🔴 Ao Vivo")
+    df_in_progress = df_events[df_events['Status'] == 'Em Andamento'].sort_values(by='Data', ascending=False)
+
     if not df_in_progress.empty:
-        display_final_results_styled(df_in_progress.head(3))
+        display_final_results_styled(df_in_progress)
     else:
         st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum jogo em andamento no momento.</p>', unsafe_allow_html=True)
 
+    # SEPARADOR ENTRE AO VIVO E FINALIZADOS
     st.markdown("---")
-    
-    # --- RESULTADOS RECENTES (CARDS) ---
+
+    # --- RESULTADOS FINAIS (CARDS) ---
+
     st.header("✅ Resultados Recentes")
     df_finalized = df_events[
         df_events['Status'].str.startswith('Finalizado', na=False)
     ].sort_values(by='Data', ascending=False)
 
     if not df_finalized.empty:
-        display_final_results_styled(df_finalized.head(6))
+        # Exibe apenas os 9 resultados mais recentes nos cards
+        display_final_results_styled(df_finalized.head(9))
     else:
         st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum resultado finalizado encontrado.</p>', unsafe_allow_html=True)
 
@@ -369,7 +437,7 @@ def main():
     ].sort_values(by='Data', ascending=True)
 
     if not df_scheduled.empty:
-        display_final_results_styled(df_scheduled.head(6))
+        display_final_results_styled(df_scheduled)
     else:
         st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum jogo agendado nos dados fornecidos.</p>', unsafe_allow_html=True)
 
@@ -378,10 +446,12 @@ def main():
 
     # --- HISTÓRICO COMPLETO DA TEMPORADA (TABELA) ---
     st.header("📚 Histórico Completo da Temporada")
-    st.dataframe(
-        df_events[['Data', 'Status', 'Jogo', 'Vencedor', 'Score Casa', 'Score Visitante', 'Detalhe Status']],
-        use_container_width=True
-    )
+
+    if not df_finalized.empty:
+        # Reutiliza o df_finalized (todos os jogos finalizados)
+        display_season_history_table(df_finalized)
+    else:
+        st.markdown('<p style="color:#888; text-align: center;">Nenhum resultado finalizado no histórico para exibir.</p>', unsafe_allow_html=True)
 
 
 if __name__ == '__main__':
