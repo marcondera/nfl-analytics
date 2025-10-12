@@ -359,4 +359,38 @@ def main():
     st.header("🔴 Ao Vivo")
     df_in_progress = df_events[df_events['Status'] == 'Em Andamento'].sort_values(by='Data', ascending=False)
     
-    if not
+    if not df_in_progress.empty:
+        display_final_results_styled(df_in_progress)
+    else:
+        st.markdown('<p style="color:#888; text-align: center;">Nenhum jogo em andamento no momento.</p>', unsafe_allow_html=True)
+
+    # st.markdown("---") <--- REMOVIDO para eliminar a barra
+
+    # --- RESULTADOS FINAIS ---
+    
+    st.header("✅ Finalizados")
+    df_finalized = df_events[
+        df_events['Status'].str.startswith('Finalizado', na=False)
+    ].sort_values(by='Data', ascending=False)
+    
+    if not df_finalized.empty:
+        display_final_results_styled(df_finalized)
+    else:
+        st.markdown('<p style="color:#888; text-align: center;">Nenhum resultado finalizado encontrado.</p>', unsafe_allow_html=True)
+        
+    # st.markdown("---") <--- REMOVIDO para eliminar a barra
+    
+    # --- JOGOS AGENDADOS ---
+    st.header("⏳ Agendados")
+    df_scheduled = df_events[
+        df_events['Status'] == 'Agendado'
+    ].sort_values(by='Data', ascending=True)
+    
+    if not df_scheduled.empty:
+        display_final_results_styled(df_scheduled)
+    else:
+        st.markdown('<p style="color:#888; text-align: center;">Nenhum jogo agendado nos dados fornecidos.</p>', unsafe_allow_html=True)
+
+
+if __name__ == '__main__':
+    main()
