@@ -61,15 +61,19 @@ def get_event_data(event):
 
         # Extração do Status Principal
         status_type = comp.get('status', {}).get('type', {})
-        status_en = status_type.get('description', '')
-        short_detail = status_type.get('shortDetail', '') # NOVO: Pegando o shortDetail
         
-        # --- FIX DEFINITIVO DO STATUS: Prioridade para 'Final' em qualquer campo relevante! ---
-        status_check_text = status_en + " " + short_detail + " " + status_type.get('detail', '')
-        status_check_text_lower = status_check_text.lower()
+        # Extrai o texto de todos os campos de status
+        status_en = status_type.get('description', '')
+        short_detail = status_type.get('shortDetail', '')
+        detail = status_type.get('detail', '')
+        
+        # --- FIX DEFINITIVO: Análise de Texto Pura ---
+        # Concatena todos os textos importantes para verificar 'final'
+        status_text_check = f"{status_en} {short_detail} {detail}".lower()
 
-        if 'final' in status_check_text_lower:
-            if 'ot' in status_check_text_lower or 'overtime' in status_check_text_lower:
+        if 'final' in status_text_check:
+            # Se a palavra 'final' está presente, o jogo está concluído.
+            if 'ot' in status_text_check or 'overtime' in status_text_check:
                 status_pt = 'Finalizado (OT)'
             else:
                 status_pt = 'Finalizado'
@@ -78,9 +82,9 @@ def get_event_data(event):
         elif status_type.get('state') == 'pre':
             status_pt = 'Agendado'
         else:
-            # Fallback para outros status não reconhecidos
+            # Fallback para outros status (ex: Postponed)
             status_pt = status_en 
-        # --- FIM FIX DEFINITIVO DO STATUS ---
+        # --- FIM FIX DEFINITIVO ---
 
         
         detail_status_raw = comp.get('status', {}).get('detail')
@@ -207,7 +211,7 @@ def load_data(api_url=API_URL_EVENTS_2025):
 def process_for_win_loss_evolution(df_events):
     """Calcula as vitórias e derrotas acumuladas para cada time."""
     
-    # Este filtro busca por todos os jogos que começam com 'Finalizado' (Corrigido acima)
+    # Este filtro usa o Status traduzido, que agora está garantido como 'Finalizado' se houver 'Final' no texto.
     df_results = df_events[
         df_events['Status'].str.startswith('Finalizado', na=False)
     ].copy()
@@ -281,7 +285,7 @@ def plot_win_loss_evolution(df_evo, selected_teams):
 
     # Exibe o gráfico no Streamlit
     st.pyplot(fig)
-    plt.close(fig) # Fecha a figura para liberar memória
+    plt.close(fig) 
 
 
 # --- 5. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
@@ -332,7 +336,6 @@ def main():
     df_evo = process_for_win_loss_evolution(df_events)
     
     if df_evo.empty:
-        # Mensagem atualizada
         st.info("A API não retornou jogos **finalizados** válidos para o cálculo. O gráfico aparecerá com todos os times assim que os dados forem carregados corretamente.")
     else:
         all_teams = sorted(df_evo['Time'].unique().tolist())
@@ -369,7 +372,6 @@ def main():
 
     # 2. Resultados Recentes (Finalizados)
     st.header("✅ Resultados Finais")
-    # Este filtro agora funcionará melhor graças à correção acima!
     df_finalized = df_events[df_events['Status'].str.startswith('Finalizado', na=False)].sort_values(by='Data', ascending=False)
     
     if not df_finalized.empty:
