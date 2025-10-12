@@ -3,6 +3,7 @@ import pandas as pd
 import json
 from datetime import datetime
 import requests 
+from dateutil.parser import isoparse # <-- Importação para análise robusta de data
 
 # Configuração da página
 st.set_page_config(
@@ -12,7 +13,7 @@ st.set_page_config(
 )
 
 # --- 1. CONFIGURAÇÃO DA API (FOCANDO NO LINK SOLICITADO) ---
-# Focando somente neste endpoint, conforme instruído.
+# Endpoint estável e solicitado pelo usuário
 API_URL_EVENTS_2025 = "https://partners.api.espn.com/v2/sports/football/nfl/events?dates=2025"
 
 
@@ -27,12 +28,11 @@ def get_league_metadata():
 def get_event_data(event):
     """
     Extrai e formata os dados principais de um único evento.
-    Contém um bloco try/except abrangente para garantir que o código NUNCA quebre.
+    Contém bloco try/except abrangente para garantir que o código NUNCA quebre.
     """
     
-    # ULTIMATE FAIL-SAFE: Captura qualquer erro de estrutura de dados para garantir que o app não quebre.
+    # ULTIMATE FAIL-SAFE
     try:
-        # A API de events usa a estrutura de competitions[0]
         comp = event['competitions'][0]
         
         # Mapeamento e Tradução do Status
@@ -47,17 +47,24 @@ def get_event_data(event):
         }
         status_pt = status_map.get(status_en, status_en)
         
-        # Formatação de Data e Hora (Ajuste para BRT = UTC-3)
+        # --- CORREÇÃO DA DATA/HORA ---
         date_iso = comp['date']
         try:
-            dt_utc = datetime.strptime(date_iso, '%Y-%m-%dT%H:%M:%SZ')
-            # Usando pd.Timedelta para ajuste de fuso horário
-            dt_brt = dt_utc.replace(tzinfo=None) - pd.Timedelta(hours=3)
+            # 1. Usa isoparse para analisar a string ISO 8601 de forma robusta.
+            # 2. Assume que a API retorna em UTC e usa o timezone da data.
+            dt_utc = isoparse(date_iso) 
+            
+            # 3. Converte para o fuso horário de Brasília (UTC-3).
+            #    Se a data não tiver timezone, ele assume que é UTC (Z).
+            dt_brt = dt_utc - pd.Timedelta(hours=3)
+
             data_formatada = dt_brt.strftime('%d/%m/%Y')
             hora_formatada = dt_brt.strftime('%H:%M') + ' BRT'
         except Exception:
+            # Se a data ainda falhar, retorna N/A
             data_formatada = "N/A"
             hora_formatada = "N/A"
+        # --- FIM DA CORREÇÃO DE DATA/HORA ---
 
 
         # --- EXTRAÇÃO ROBUSTA DE COMPETIDORES ---
@@ -65,12 +72,10 @@ def get_event_data(event):
         home_team = {} 
         away_team = {} 
 
-        # Lógica para garantir que home_team/away_team sejam sempre dicionários
         if len(competitors) >= 2:
             c1 = competitors[0]
             c2 = competitors[1]
             
-            # Garantindo que c1 e c2 são dicionários (ponto crítico de falha)
             c1 = c1 if isinstance(c1, dict) else {}
             c2 = c2 if isinstance(c2, dict) else {}
 
@@ -81,15 +86,13 @@ def get_event_data(event):
                 home_team = c2
                 away_team = c1
             else:
-                # Fallback posicional
                 home_team = c1
                 away_team = c2
                 
-        # Extração de Scores e Nomes (AGORA À PROVA DE FALHAS)
+        # Extração de Scores e Nomes (validado pelo events (1).json)
         home_score = home_team.get('score', {}).get('displayValue', '0')
         away_score = away_team.get('score', {}).get('displayValue', '0')
         
-        # Usando 'displayName' e 'abbreviation' conforme a estrutura do JSON que você enviou
         home_display_name = home_team.get('team', {}).get('displayName', 'Time Casa')
         away_display_name = away_team.get('team', {}).get('displayName', 'Time Visitante')
             
@@ -97,7 +100,6 @@ def get_event_data(event):
         winner_team = "A definir"
         if status_pt.startswith('Finalizado'):
             try:
-                # Converte para float para comparação segura
                 if home_score.isdigit() and away_score.isdigit():
                     if float(home_score) > float(away_score):
                         winner_team = home_team.get('team', {}).get('abbreviation', home_display_name)
@@ -125,7 +127,6 @@ def get_event_data(event):
         }
         
     except Exception as e:
-        # Se qualquer falha ocorrer durante o processamento, retorna uma linha de ERRO
         return {
             'Jogo': 'Erro de Estrutura de Dados',
             'Data': 'N/A',
@@ -157,7 +158,7 @@ def load_data(api_url=API_URL_EVENTS_2025):
         st.error("Erro ao decodificar a resposta como JSON.")
         return pd.DataFrame()
 
-    # O JSON fornecido usa a chave 'events' no nível superior.
+    # Usando a chave 'events' conforme o JSON fornecido
     events_list = data.get('events', [])
     
     if not events_list:
@@ -184,7 +185,6 @@ def main():
     st.title(f"🏈 Dashboard {league_name} - Todos os Eventos de {current_season}")
     st.markdown("---")
     
-    # Barra Lateral com Metadados e Controles
     st.sidebar.markdown("### Controles")
     st.sidebar.markdown(f"**Liga:** {league_name}")
     st.sidebar.markdown(f"**Temporada:** {current_season} (Todos os Eventos)")
