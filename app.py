@@ -3,7 +3,8 @@ import pandas as pd
 import json
 from datetime import datetime
 import requests 
-from dateutil.parser import isoparse # Importação para análise robusta de data
+# Removendo: from dateutil.parser import isoparse
+# Usaremos apenas a biblioteca padrão 'datetime'
 
 # Configuração da página
 st.set_page_config(
@@ -46,21 +47,31 @@ def get_event_data(event):
         }
         status_pt = status_map.get(status_en, status_en)
         
-        # --- CORREÇÃO DA DATA/HORA (usando isoparse) ---
+        # --- CORREÇÃO FINAL DA DATA/HORA (Usando fromisoformat e removendo 'Z') ---
         date_iso = comp['date']
+        data_formatada = "N/A"
+        hora_formatada = "N/A"
+        
         try:
-            dt_utc = isoparse(date_iso) 
-            dt_brt = dt_utc - pd.Timedelta(hours=3) # Converte para BRT (UTC-3)
+            # 1. Remove o 'Z' (Zulu/UTC) para compatibilidade com fromisoformat.
+            if date_iso.endswith('Z'):
+                date_iso = date_iso[:-1]
+            
+            # 2. Usa fromisoformat (Python 3.7+) para análise precisa.
+            dt_utc = datetime.fromisoformat(date_iso)
+            
+            # 3. Converte para BRT (UTC-3) usando pd.Timedelta.
+            dt_brt = dt_utc - pd.Timedelta(hours=3)
 
             data_formatada = dt_brt.strftime('%d/%m/%Y')
             hora_formatada = dt_brt.strftime('%H:%M') + ' BRT'
         except Exception:
-            data_formatada = "N/A"
-            hora_formatada = "N/A"
+            # Se a data ainda falhar, permanece N/A
+            pass # Permite que data_formatada e hora_formatada permaneçam "N/A"
         # --- FIM DA CORREÇÃO DE DATA/HORA ---
 
 
-        # --- EXTRAÇÃO ROBUSTA DE COMPETIDORES ---
+        # --- EXTRAÇÃO ROBUSTA DE COMPETIDORES (Testada e validada) ---
         competitors = comp.get('competitors', [])
         home_team = {} 
         away_team = {} 
@@ -116,7 +127,7 @@ def get_event_data(event):
             'Visitante': away_display_name,
             'Score Visitante': away_score,
             'Vencedor': winner_team,
-            # EXTRAÇÃO ROBUSTA DO DETALHE STATUS (confirmada no events (1).json)
+            # EXTRAÇÃO DO DETALHE STATUS (permanece a mesma, pois o erro é na data)
             'Detalhe Status': comp.get('status', {}).get('detail', 'N/A') 
         }
         
