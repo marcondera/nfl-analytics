@@ -61,38 +61,31 @@ def get_event_data(event):
 
         # Extração do Status Principal
         status_type = comp.get('status', {}).get('type', {})
-        status_en = status_type.get('description')
+        status_en = status_type.get('description', '')
         
-        # --- FIX: LÓGICA DE STATUS MAIS ROBUSTA ---
-        status_state = status_type.get('state')
-        is_completed = status_type.get('completed', False)
+        # --- FIX DEFINITIVO DO STATUS: Se contiver "final", é finalizado! ---
+        status_en_lower = status_en.lower()
 
-        if is_completed or status_state == 'post':
-            if 'OT' in status_en:
+        if 'final' in status_en_lower:
+            if 'ot' in status_en_lower:
                 status_pt = 'Finalizado (OT)'
             else:
                 status_pt = 'Finalizado'
-        elif status_state == 'in':
+        elif status_type.get('state') == 'in':
             status_pt = 'Em Andamento'
-        elif status_state == 'pre':
+        elif status_type.get('state') == 'pre':
             status_pt = 'Agendado'
         else:
-            # Fallback para o mapa de status conhecido
-            status_map = {
-                'Final': 'Finalizado',
-                'Final/OT': 'Finalizado (OT)',
-                'In Progress': 'Em Andamento',
-                'Scheduled': 'Agendado'
-            }
-            status_pt = status_map.get(status_en, status_en)
-        # --- FIM FIX LÓGICA DE STATUS ---
+            # Fallback para outros status não reconhecidos (Ex: Postponed)
+            status_pt = status_en 
+        # --- FIM FIX DEFINITIVO DO STATUS ---
 
         
         detail_status_raw = comp.get('status', {}).get('detail')
         if detail_status_raw:
             detail_status = detail_status_raw
         
-        # --- LÓGICA DE CORREÇÃO/CONSTRUÇÃO DO DETALHE STATUS (Fallback) ---
+        # --- LÓGICA DE CONSTRUÇÃO DO DETALHE STATUS ---
         if status_pt == 'Em Andamento' and (detail_status == 'N/A' or not detail_status_raw):
             clock = comp.get('status', {}).get('displayClock', '')
             period_num = comp.get('status', {}).get('period', 0)
@@ -135,7 +128,7 @@ def get_event_data(event):
         home_display_name = home_team.get('team', {}).get('displayName', 'Time Casa')
         away_display_name = away_team.get('team', {}).get('displayName', 'Time Visitante')
             
-        # Determinação do Vencedor
+        # Determinação do Vencedor (só ocorre se o status_pt for Finalizado)
         if status_pt.startswith('Finalizado'):
             try:
                 if home_score.isdigit() and away_score.isdigit():
@@ -155,7 +148,7 @@ def get_event_data(event):
             'Jogo': event.get('name', 'N/A'),
             'Data': data_formatada,
             'Hora': hora_formatada,
-            'Status': status_pt, # Status traduzido e corrigido!
+            'Status': status_pt, 
             'Casa': home_display_name,
             'Visitante': away_display_name,
             'Vencedor': winner_team,
@@ -212,7 +205,7 @@ def load_data(api_url=API_URL_EVENTS_2025):
 def process_for_win_loss_evolution(df_events):
     """Calcula as vitórias e derrotas acumuladas para cada time."""
     
-    # Este filtro agora deve funcionar corretamente!
+    # Este filtro busca por todos os jogos que começam com 'Finalizado' (Corrigido acima)
     df_results = df_events[
         df_events['Status'].str.startswith('Finalizado', na=False)
     ].copy()
@@ -229,6 +222,7 @@ def process_for_win_loss_evolution(df_events):
         visitante = row['Visitante']
         vencedor = row['Vencedor']
         
+        # Atribuição de W/L (+1 para Vitoria, -1 para Derrota)
         if vencedor == casa:
             evolution_data.append({'Time': casa, 'Data_Jogo': row['Data_dt'], 'Delta': 1})
             evolution_data.append({'Time': visitante, 'Data_Jogo': row['Data_dt'], 'Delta': -1})
@@ -331,11 +325,11 @@ def main():
     df_evo = process_for_win_loss_evolution(df_events)
     
     if df_evo.empty:
-        st.info("A API não retornou jogos finalizados. O gráfico aparecerá automaticamente com todos os times assim que os dados estiverem disponíveis.")
+        st.info("A API não retornou jogos **finalizados**. O gráfico aparecerá automaticamente com todos os times assim que os dados estiverem disponíveis.")
     else:
         all_teams = sorted(df_evo['Time'].unique().tolist())
         
-        # Seleciona TODOS os times por padrão, conforme solicitado
+        # Seleciona TODOS os times por padrão
         default_teams = all_teams 
         
         selected_teams = st.sidebar.multiselect(
@@ -367,6 +361,7 @@ def main():
 
     # 2. Resultados Recentes (Finalizados)
     st.header("✅ Resultados Finais")
+    # Este filtro agora funcionará melhor graças à correção acima!
     df_finalized = df_events[df_events['Status'].str.startswith('Finalizado', na=False)].sort_values(by='Data', ascending=False)
     
     if not df_finalized.empty:
