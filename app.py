@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 import requests 
 from dateutil.parser import isoparse 
-import altair as alt # NOVO: Importação necessária para o gráfico evolutivo
+import matplotlib.pyplot as plt # NOVO: Importação do Matplotlib
 
 # Configuração da página
 st.set_page_config(
@@ -18,6 +18,7 @@ API_URL_EVENTS_2025 = "https://partners.api.espn.com/v2/sports/football/nfl/even
 
 
 # --- 2. FUNÇÕES DE BUSCA E PROCESSAMENTO DE DADOS ---
+# (Funções get_league_metadata, get_period_name e get_event_data permanecem inalteradas da versão estável)
 
 def get_league_metadata():
     """Retorna informações estáticas da liga."""
@@ -37,7 +38,6 @@ def get_event_data(event):
     Extrai e formata os dados principais de um único evento de forma ultra-robusta.
     """
     
-    # Valores de segurança (default)
     data_formatada = "N/A"
     hora_formatada = "N/A"
     status_pt = "N/A"
@@ -72,7 +72,6 @@ def get_event_data(event):
         }
         status_pt = status_map.get(status_en, status_en)
         
-        # Tentativa de extração do Detalhe Status da API
         detail_status_raw = comp.get('status', {}).get('detail')
         if detail_status_raw:
             detail_status = detail_status_raw
@@ -192,12 +191,11 @@ def load_data(api_url=API_URL_EVENTS_2025):
     df = pd.DataFrame(events_data)
     return df
 
-# --- 3. NOVA FUNÇÃO: CALCULA EVOLUÇÃO W/L ---
+# --- 3. FUNÇÃO: CALCULA EVOLUÇÃO W/L ---
 
 def process_for_win_loss_evolution(df_events):
     """Calcula as vitórias e derrotas acumuladas para cada time."""
     
-    # 1. Filtra apenas jogos finalizados
     df_results = df_events[
         df_events['Status'].str.startswith('Finalizado', na=False)
     ].copy()
@@ -205,7 +203,6 @@ def process_for_win_loss_evolution(df_events):
     if df_results.empty:
         return pd.DataFrame()
     
-    # Ordena por Data para garantir a ordem correta da evolução
     df_results['Data_dt'] = pd.to_datetime(df_results['Data'], format='%d/%m/%Y', errors='coerce')
     df_results = df_results.sort_values(by='Data_dt').reset_index(drop=True)
 
@@ -215,56 +212,72 @@ def process_for_win_loss_evolution(df_events):
         visitante = row['Visitante']
         vencedor = row['Vencedor']
         
-        # Cria dois registros por jogo (um para cada time)
+        # Atribuição de W/L (+1 para Vitoria, -1 para Derrota)
         if vencedor == casa:
-            evolution_data.append({'Time': casa, 'Jogo': row['Jogo'], 'Resultado': 'Vitória', 'Data_Jogo': row['Data_dt'], 'Tipo': 'Vitórias', 'Contagem': 1})
-            evolution_data.append({'Time': visitante, 'Jogo': row['Jogo'], 'Resultado': 'Derrota', 'Data_Jogo': row['Data_dt'], 'Tipo': 'Derrotas', 'Contagem': 1})
+            evolution_data.append({'Time': casa, 'Data_Jogo': row['Data_dt'], 'Delta': 1})
+            evolution_data.append({'Time': visitante, 'Data_Jogo': row['Data_dt'], 'Delta': -1})
         elif vencedor == visitante:
-            evolution_data.append({'Time': visitante, 'Jogo': row['Jogo'], 'Resultado': 'Vitória', 'Data_Jogo': row['Data_dt'], 'Tipo': 'Vitórias', 'Contagem': 1})
-            evolution_data.append({'Time': casa, 'Jogo': row['Jogo'], 'Resultado': 'Derrota', 'Data_Jogo': row['Data_dt'], 'Tipo': 'Derrotas', 'Contagem': 1})
-        # Empates (são ignorados na contagem W/L para simplificar o gráfico)
+            evolution_data.append({'Time': visitante, 'Data_Jogo': row['Data_dt'], 'Delta': 1})
+            evolution_data.append({'Time': casa, 'Data_Jogo': row['Data_dt'], 'Delta': -1})
 
     df_evo = pd.DataFrame(evolution_data)
+    if df_evo.empty:
+        return pd.DataFrame()
         
-    # 2. Calcula o acumulado por time e por tipo (Vitórias/Derrotas)
-    df_evo['Acumulado'] = df_evo.groupby(['Time', 'Tipo'])['Contagem'].cumsum()
+    # Ordena e calcula o acumulado
+    df_evo = df_evo.sort_values(by=['Time', 'Data_Jogo'])
+    df_evo['Saldo Acumulado'] = df_evo.groupby('Time')['Delta'].cumsum()
     
-    # Adiciona um índice de jogo (sequencial por time) para o eixo X do gráfico
-    df_evo['Total Jogos'] = df_evo.groupby('Time').cumcount().floordiv(2) + 1 # Divide por 2 porque cada jogo gera 2 linhas (W e L)
+    # Adiciona um índice de jogo sequencial
+    df_evo['Total Jogos'] = df_evo.groupby('Time').cumcount() + 1
     
-    return df_evo[['Time', 'Jogo', 'Data_Jogo', 'Tipo', 'Acumulado', 'Total Jogos']]
+    # Remove duplicatas por jogo, mantendo apenas o último registro do saldo para o gráfico
+    # df_evo = df_evo.drop_duplicates(subset=['Time', 'Data_Jogo'], keep='last')
+    
+    return df_evo[['Time', 'Data_Jogo', 'Saldo Acumulado', 'Total Jogos']]
 
-# --- 4. NOVA FUNÇÃO: PLOTAGEM (Gráfico de Área Empilhada) ---
+# --- 4. FUNÇÃO: PLOTAGEM (Matplotlib) ---
 
 def plot_win_loss_evolution(df_evo, selected_teams):
-    """Cria o gráfico de evolução W/L (área empilhada) usando Altair."""
+    """Cria o gráfico de evolução W/L (Matplotlib) mostrando o saldo acumulado (W-L)."""
     
-    # Filtra os times selecionados
     df_plot = df_evo[df_evo['Time'].isin(selected_teams)]
     
     if df_plot.empty:
-        st.info("Nenhum time selecionado ou nenhum dado disponível para o(s) time(s) selecionado(s).")
+        st.info("Nenhum time selecionado ou nenhum dado disponível.")
         return
+    
+    # Cria a figura e o eixo do Matplotlib
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Itera sobre os times selecionados para plotar as linhas
+    for team in selected_teams:
+        team_data = df_plot[df_plot['Time'] == team]
+        # Usa 'Total Jogos' no eixo X e 'Saldo Acumulado' no eixo Y
+        ax.plot(
+            team_data['Total Jogos'], 
+            team_data['Saldo Acumulado'], 
+            marker='o', 
+            label=team,
+            linestyle='-'
+        )
 
-    # Ordem das cores para manter Vitórias em cima e Derrotas em baixo
-    color_scale = alt.Scale(domain=['Vitórias', 'Derrotas'], range=['#69C54F', '#D94452'])
+    # Linha de base para 0
+    ax.axhline(0, color='gray', linestyle='--') 
+    
+    # Configuração do gráfico
+    ax.set_title('Evolução do Saldo W-L (Vitórias - Derrotas)', fontsize=14)
+    ax.set_xlabel('Jogos Disputados', fontsize=12)
+    ax.set_ylabel('Saldo Acumulado (W - L)', fontsize=12)
+    ax.grid(True, linestyle=':', alpha=0.6)
+    ax.legend(title='Time', loc='upper left')
+    
+    # Garante que os ticks do eixo X sejam inteiros (número de jogos)
+    ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
 
-    chart = alt.Chart(df_plot).mark_area().encode(
-        # Eixo X: Total de Jogos
-        x=alt.X('Total Jogos:Q', axis=alt.Axis(title='Jogos Disputados', tickMinStep=1)),
-        # Eixo Y: Acumulado (Empilhado)
-        y=alt.Y('Acumulado:Q', stack='zero', axis=alt.Axis(title='Vitórias (Acima) / Derrotas (Abaixo)')),
-        # Cor: Tipo de resultado (Vitórias ou Derrotas)
-        color=alt.Color('Tipo:N', scale=color_scale, legend=alt.Legend(title="Resultado")),
-        # Divisão por Linha (para cada time)
-        row=alt.Row('Time:N', header=alt.Header(titleOrient="bottom", labelOrient="bottom")),
-        # Tooltip para interatividade
-        tooltip=['Time', 'Total Jogos', 'Tipo', 'Acumulado']
-    ).properties(
-        title='Evolução Acumulada de Vitórias (W) e Derrotas (L)'
-    ).interactive()
-
-    st.altair_chart(chart, use_container_width=True)
+    # Exibe o gráfico no Streamlit
+    st.pyplot(fig)
+    plt.close(fig) # Fecha a figura para liberar memória
 
 
 # --- 5. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
@@ -294,39 +307,38 @@ def main():
     st.header("Visão Geral do Status dos Jogos")
     
     status_counts = df_events['Status'].value_counts()
-    
     total_games = len(df_events)
     finalizados = status_counts.get('Finalizado', 0) + status_counts.get('Finalizado (OT)', 0)
+    em_andamento = status_counts.get('Em Andamento', 0)
+    agendados = status_counts.get('Agendado', 0)
+    erros = status_counts.get('ERRO', 0)
     
-    # ... (outras métricas omitidas para brevidade, mas estão no código)
-
-    col1, col2 = st.columns(2)
+    col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Total de Jogos", total_games)
     col2.metric("Finalizados", finalizados)
-    # ... (outras colunas)
+    col3.metric("Em Andamento", em_andamento)
+    col4.metric("Agendados", agendados)
+    col5.metric("Erros de Extração", erros)
 
     st.markdown("---")
     
-    # --- GRÁFICO DE EVOLUÇÃO W/L ---
-    st.header("📈 Gráfico de Evolução de W-L Acumulado")
+    # --- GRÁFICO DE EVOLUÇÃO W/L (Matplotlib) ---
+    st.header("📈 Evolução do Saldo W-L")
     
     df_evo = process_for_win_loss_evolution(df_events)
     
-    # CORREÇÃO CRÍTICA: Checagem de segurança para evitar o KeyError
+    # CORREÇÃO CRÍTICA: Checagem de segurança (Resolve o KeyError)
     if df_evo.empty:
         st.info("Não há dados de jogos finalizados para calcular o gráfico de evolução.")
     else:
-        # Lógica de Plotagem (só executa se df_evo não estiver vazio)
         all_teams = sorted(df_evo['Time'].unique().tolist())
-        
-        # Seleciona os primeiros 5 times por padrão
-        default_teams = all_teams[:5]
+        default_teams = all_teams[:5] # Seleciona os primeiros 5 por padrão
         
         selected_teams = st.sidebar.multiselect(
-            "Selecione os Times para o Gráfico:",
+            "Selecione os Times para o Gráfico de Saldo W-L:",
             options=all_teams,
             default=default_teams,
-            key='team_selector_evo'
+            key='team_selector_mpl'
         )
         
         plot_win_loss_evolution(df_evo, selected_teams)
@@ -338,7 +350,7 @@ def main():
     # 1. Jogos em Andamento (Ao Vivo)
     st.header("🔴 Jogos Ao Vivo")
     df_in_progress = df_events[df_events['Status'] == 'Em Andamento'].sort_values(by='Detalhe Status', ascending=False)
-    # ... (restante do código das tabelas)
+    
     if not df_in_progress.empty:
         st.dataframe(
             df_in_progress[['Jogo', 'Detalhe Status', 'Casa', 'Score Casa', 'Visitante', 'Score Visitante']],
