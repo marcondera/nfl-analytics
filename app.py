@@ -22,9 +22,7 @@ API_URL_LEAGUE_METADATA = "https://sports.core.api.espn.com/v2/sports/football/l
 
 @st.cache_data(ttl=3600) # Cache por 1 hora para dados estáticos
 def get_league_metadata(api_url=API_URL_LEAGUE_METADATA):
-    """Busca informações estáticas da liga (nome e ano da temporada)
-       na API de metadados.
-    """
+    """Busca informações estáticas da liga (nome e ano da temporada)."""
     try:
         response = requests.get(api_url)
         response.raise_for_status() 
@@ -36,20 +34,16 @@ def get_league_metadata(api_url=API_URL_LEAGUE_METADATA):
         season_ref = data.get('season', {}).get('$ref')
         current_year = "N/A"
         if season_ref:
-            # Ex: ".../seasons/2025" -> extrai "2025"
             parts = season_ref.split('/')
             current_year = parts[-1].split('?')[0]
             
         return league_name, current_year
     except Exception:
-        # Retorna valores padrão em caso de falha na API
         return 'NFL', 'N/A'
 
 
 def get_event_data(event):
-    """Extrai e formata os dados principais de um único evento.
-    Inclui acesso seguro a todas as chaves JSON para evitar KeyErrors.
-    """
+    """Extrai e formata os dados principais de um único evento."""
     
     try:
         comp = event['competitions'][0]
@@ -121,7 +115,8 @@ def get_event_data(event):
 def load_data(api_url=API_URL_SCOREBOARD):
     """Busca e normaliza os dados diretamente da API de Scoreboard da ESPN."""
     
-    # Tenta obter dados da API
+    st.info(f"Buscando placares atualizados...")
+    
     try:
         response = requests.get(api_url)
         response.raise_for_status() 
@@ -134,15 +129,12 @@ def load_data(api_url=API_URL_SCOREBOARD):
         st.error("Erro ao decodificar a resposta como JSON.")
         return pd.DataFrame()
 
-    # Scoreboard usa a chave 'events' diretamente
     events_list = data.get('events')
     
     if not events_list:
-        # Se não há eventos, exibe uma mensagem no dashboard
         st.info("Nenhum evento encontrado no Scoreboard da NFL para o período atual.")
         return pd.DataFrame()
         
-    # Processa e filtra eventos
     events_data = [get_event_data(e) for e in events_list]
     events_data = [item for item in events_data if item is not None]
         
@@ -164,16 +156,17 @@ def main():
     st.title(f"🏈 Dashboard {league_name} - Placares Atuais")
     st.markdown("---")
     
-    # Barra Lateral com Metadados
+    # Barra Lateral com Metadados e Controles
     st.sidebar.markdown("### Controles")
     st.sidebar.markdown(f"**Liga:** {league_name}")
     st.sidebar.markdown(f"**Temporada:** {current_season}")
     st.sidebar.markdown("---")
     
+    # CORREÇÃO AQUI: st.rerun() substitui st.experimental_rerun()
     if st.sidebar.button("Recarregar Dados Agora"):
         # Limpa o cache de dados dinâmicos (Scoreboard) para forçar a busca
         load_data.clear() 
-        st.experimental_rerun()
+        st.rerun()
         
     # Busca dados do Scoreboard
     df_events = load_data()
