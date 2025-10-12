@@ -6,142 +6,146 @@ import requests
 
 # Configuração da página
 st.set_page_config(
-    page_title="NFL Scoreboard Dashboard",
+    page_title="NFL 2025 Eventos",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- 1. CONFIGURAÇÃO DAS APIS (USANDO SUA URL ESTÁVEL) ---
-# Esta URL é muito mais estável para buscar eventos de uma temporada inteira.
+# --- 1. CONFIGURAÇÃO DA API (FOCANDO NO LINK SOLICITADO) ---
+# Focando somente neste endpoint, conforme instruído.
 API_URL_EVENTS_2025 = "https://partners.api.espn.com/v2/sports/football/nfl/events?dates=2025"
-API_URL_LEAGUE_METADATA = "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl"
 
 
-# --- 2. FUNÇÕES DE BUSCA E PROCESSAMENTO DE DADOS (SEM CACHE) ---
+# --- 2. FUNÇÕES DE BUSCA E PROCESSAMENTO DE DADOS ---
 
-def get_league_metadata(api_url=API_URL_LEAGUE_METADATA):
-    """Busca informações estáticas da liga."""
-    try:
-        response = requests.get(api_url)
-        response.raise_for_status() 
-        data = response.json()
-        
-        league_name = data.get('name', 'NFL')
-        
-        # Padrão para 2025, já que a busca é por essa data
-        current_year = "2025" 
-        
-        return league_name, current_year
-    except Exception:
-        return 'NFL', '2025'
+# Hardcoding metadata para focar no endpoint principal e garantir estabilidade.
+def get_league_metadata():
+    """Retorna informações estáticas da liga."""
+    return 'NFL', '2025'
 
 
 def get_event_data(event):
-    """Extrai e formata os dados principais de um único evento."""
+    """
+    Extrai e formata os dados principais de um único evento.
+    Contém um bloco try/except abrangente para garantir que o código NUNCA quebre.
+    """
     
+    # ULTIMATE FAIL-SAFE: Captura qualquer erro de estrutura de dados para garantir que o app não quebre.
     try:
-        # A API de events usa a mesma estrutura de competitions[0]
+        # A API de events usa a estrutura de competitions[0]
         comp = event['competitions'][0]
-    except (KeyError, IndexError):
-        return None
-
-    # Mapeamento e Tradução do Status
-    status_type = comp.get('status', {}).get('type', {})
-    status_en = status_type.get('description')
-    
-    status_map = {
-        'Final': 'Finalizado',
-        'Final/OT': 'Finalizado (OT)',
-        'In Progress': 'Em Andamento',
-        'Scheduled': 'Agendado'
-    }
-    status_pt = status_map.get(status_en, status_en)
-    
-    # Formatação de Data e Hora (Ajuste para BRT = UTC-3)
-    date_iso = comp['date']
-    try:
-        dt_utc = datetime.strptime(date_iso, '%Y-%m-%dT%H:%M:%SZ')
-        dt_brt = dt_utc.replace(tzinfo=None) - pd.Timedelta(hours=3)
-        data_formatada = dt_brt.strftime('%d/%m/%Y')
-        hora_formatada = dt_brt.strftime('%H:%M') + ' BRT'
-    except Exception:
-        data_formatada = "N/A"
-        hora_formatada = "N/A"
-
-
-    # --- EXTRAÇÃO ULTRA-ROBUSTA (A ÚLTIMA LINHA DE DEFESA) ---
-    competitors = comp.get('competitors', [])
-    home_team = {} 
-    away_team = {} 
-
-    # Lógica explícita para garantir que home_team/away_team sejam sempre dicionários
-    if len(competitors) >= 2:
-        c1 = competitors[0]
-        c2 = competitors[1]
         
-        # Garantindo que c1 e c2 são dicionários (aqui estava o ponto de falha)
-        c1 = c1 if isinstance(c1, dict) else {}
-        c2 = c2 if isinstance(c2, dict) else {}
-
-        # Tentativa de identificar pelo homeAway (mais confiável)
-        if c1.get('homeAway') == 'home':
-            home_team = c1
-            away_team = c2
-        elif c2.get('homeAway') == 'home':
-            home_team = c2
-            away_team = c1
-        else:
-            # Fallback posicional, mas com garantia de que são dicionários
-            home_team = c1
-            away_team = c2
-            
-    # Extração de Scores e Nomes (AGORA À PROVA DE FALHAS)
-    # Garante que .get() seja chamado em um dict ({} ou o time)
-    home_score = home_team.get('score', {}).get('displayValue', '0')
-    away_score = away_team.get('score', {}).get('displayValue', '0')
-    
-    home_display_name = home_team.get('team', {}).get('displayName', 'Time Casa')
-    away_display_name = away_team.get('team', {}).get('displayName', 'Time Visitante')
+        # Mapeamento e Tradução do Status
+        status_type = comp.get('status', {}).get('type', {})
+        status_en = status_type.get('description')
         
-    # Determinação do Vencedor
-    winner_team = "A definir"
-    if status_pt.startswith('Finalizado'):
+        status_map = {
+            'Final': 'Finalizado',
+            'Final/OT': 'Finalizado (OT)',
+            'In Progress': 'Em Andamento',
+            'Scheduled': 'Agendado'
+        }
+        status_pt = status_map.get(status_en, status_en)
+        
+        # Formatação de Data e Hora (Ajuste para BRT = UTC-3)
+        date_iso = comp['date']
         try:
-            if home_score.isdigit() and away_score.isdigit():
-                 if float(home_score) > float(away_score):
-                    winner_team = home_team.get('team', {}).get('abbreviation', home_display_name)
-                 elif float(away_score) > float(home_score):
-                    winner_team = away_team.get('team', {}).get('abbreviation', away_display_name)
-                 else:
-                    winner_team = "Empate"
-            else:
-                winner_team = "N/A"
+            dt_utc = datetime.strptime(date_iso, '%Y-%m-%dT%H:%M:%SZ')
+            # Usando pd.Timedelta para ajuste de fuso horário
+            dt_brt = dt_utc.replace(tzinfo=None) - pd.Timedelta(hours=3)
+            data_formatada = dt_brt.strftime('%d/%m/%Y')
+            hora_formatada = dt_brt.strftime('%H:%M') + ' BRT'
         except Exception:
-            winner_team = "N/A"
+            data_formatada = "N/A"
+            hora_formatada = "N/A"
 
 
-    return {
-        'Jogo': event.get('name', 'N/A'),
-        'Data': data_formatada,
-        'Hora': hora_formatada,
-        'Status': status_pt,
-        'Casa': home_display_name,
-        'Score Casa': home_score,
-        'Visitante': away_display_name,
-        'Score Visitante': away_score,
-        'Vencedor': winner_team,
-        'Detalhe Status': comp.get('status', {}).get('detail', 'N/A')
-    }
+        # --- EXTRAÇÃO ROBUSTA DE COMPETIDORES ---
+        competitors = comp.get('competitors', [])
+        home_team = {} 
+        away_team = {} 
+
+        # Lógica para garantir que home_team/away_team sejam sempre dicionários
+        if len(competitors) >= 2:
+            c1 = competitors[0]
+            c2 = competitors[1]
+            
+            # Garantindo que c1 e c2 são dicionários (ponto crítico de falha)
+            c1 = c1 if isinstance(c1, dict) else {}
+            c2 = c2 if isinstance(c2, dict) else {}
+
+            if c1.get('homeAway') == 'home':
+                home_team = c1
+                away_team = c2
+            elif c2.get('homeAway') == 'home':
+                home_team = c2
+                away_team = c1
+            else:
+                # Fallback posicional
+                home_team = c1
+                away_team = c2
+                
+        # Extração de Scores e Nomes (AGORA À PROVA DE FALHAS)
+        home_score = home_team.get('score', {}).get('displayValue', '0')
+        away_score = away_team.get('score', {}).get('displayValue', '0')
+        
+        # Usando 'displayName' e 'abbreviation' conforme a estrutura do JSON que você enviou
+        home_display_name = home_team.get('team', {}).get('displayName', 'Time Casa')
+        away_display_name = away_team.get('team', {}).get('displayName', 'Time Visitante')
+            
+        # Determinação do Vencedor
+        winner_team = "A definir"
+        if status_pt.startswith('Finalizado'):
+            try:
+                # Converte para float para comparação segura
+                if home_score.isdigit() and away_score.isdigit():
+                    if float(home_score) > float(away_score):
+                        winner_team = home_team.get('team', {}).get('abbreviation', home_display_name)
+                    elif float(away_score) > float(home_score):
+                        winner_team = away_team.get('team', {}).get('abbreviation', away_display_name)
+                    else:
+                        winner_team = "Empate"
+                else:
+                    winner_team = "N/A"
+            except Exception:
+                winner_team = "N/A"
+
+
+        return {
+            'Jogo': event.get('name', 'N/A'),
+            'Data': data_formatada,
+            'Hora': hora_formatada,
+            'Status': status_pt,
+            'Casa': home_display_name,
+            'Score Casa': home_score,
+            'Visitante': away_display_name,
+            'Score Visitante': away_score,
+            'Vencedor': winner_team,
+            'Detalhe Status': comp.get('status', {}).get('detail', 'N/A')
+        }
+        
+    except Exception as e:
+        # Se qualquer falha ocorrer durante o processamento, retorna uma linha de ERRO
+        return {
+            'Jogo': 'Erro de Estrutura de Dados',
+            'Data': 'N/A',
+            'Hora': 'N/A',
+            'Status': 'ERRO',
+            'Casa': 'ERRO DE PROCESSAMENTO',
+            'Score Casa': 'N/A',
+            'Visitante': 'ERRO DE PROCESSAMENTO',
+            'Score Visitante': 'N/A',
+            'Vencedor': 'N/A',
+            'Detalhe Status': f'Falha: {type(e).__name__}'
+        }
 
 
 def load_data(api_url=API_URL_EVENTS_2025):
     """Busca e normaliza os dados da API de Events da ESPN (2025)."""
     
-    st.info(f"Buscando todos os eventos da NFL 2025 (URL: {api_url})...")
+    st.info(f"Buscando eventos da NFL 2025 (URL: {api_url})...")
     
     try:
-        # Nota: A API de partners da ESPN frequentemente requer uma chave 'apikey'. 
-        # Se falhar aqui, o problema pode ser a falta dessa chave.
         response = requests.get(api_url)
         response.raise_for_status() 
         data = response.json()
@@ -153,7 +157,8 @@ def load_data(api_url=API_URL_EVENTS_2025):
         st.error("Erro ao decodificar a resposta como JSON.")
         return pd.DataFrame()
 
-    events_list = data.get('events')
+    # O JSON fornecido usa a chave 'events' no nível superior.
+    events_list = data.get('events', [])
     
     if not events_list:
         st.info("Nenhum evento encontrado na API de Events para 2025.")
@@ -188,7 +193,6 @@ def main():
     if st.sidebar.button("Recarregar Dados Agora"):
         st.rerun() 
         
-    # Busca dados do Scoreboard
     df_events = load_data()
 
     if df_events.empty:
@@ -203,12 +207,14 @@ def main():
     finalizados = status_counts.get('Finalizado', 0) + status_counts.get('Finalizado (OT)', 0)
     em_andamento = status_counts.get('Em Andamento', 0)
     agendados = status_counts.get('Agendado', 0)
+    erros = status_counts.get('ERRO', 0)
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Total de Jogos", total_games)
     col2.metric("Finalizados", finalizados)
     col3.metric("Em Andamento", em_andamento)
     col4.metric("Agendados", agendados)
+    col5.metric("Erros de Extração", erros)
 
     st.markdown("---")
 
