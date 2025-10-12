@@ -3,12 +3,11 @@ import pandas as pd
 import json
 from datetime import datetime
 import requests 
-from dateutil.parser import isoparse 
-import altair as alt # Importação necessária para o gráfico evolutivo
+from dateutil.parser import isoparse # Usado para análise robusta da data
 
 # Configuração da página
 st.set_page_config(
-    page_title="NFL 2025 Eventos e Evolução W/L",
+    page_title="NFL 2025 Eventos",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -196,77 +195,8 @@ def load_data(api_url=API_URL_EVENTS_2025):
     df = pd.DataFrame(events_data)
     return df
 
-# --- 3. NOVA FUNÇÃO: CALCULA EVOLUÇÃO W/L ---
 
-def process_for_win_loss_evolution(df_events):
-    """Calcula as vitórias e derrotas acumuladas para cada time."""
-    
-    # 1. Filtra apenas jogos finalizados
-    df_results = df_events[
-        df_events['Status'].str.startswith('Finalizado', na=False)
-    ].copy()
-    
-    if df_results.empty:
-        # Retorna um DataFrame vazio. A correção de erro será feita em 'main()'.
-        return pd.DataFrame()
-    
-    # Ordena por Data para garantir a ordem correta da evolução
-    # Converte 'Data' para datetime, tratando erros, para ordenação
-    df_results['Data_dt'] = pd.to_datetime(df_results['Data'], format='%d/%m/%Y', errors='coerce')
-    df_results = df_results.sort_values(by='Data_dt').reset_index(drop=True)
-
-    evolution_data = []
-    for index, row in df_results.iterrows():
-        casa = row['Casa']
-        visitante = row['Visitante']
-        vencedor = row['Vencedor']
-        
-        if vencedor == casa:
-            evolution_data.append({'Time': casa, 'Jogo': row['Jogo'], 'Resultado': 'Vitória', 'Data_Jogo': row['Data_dt'], 'Vitória': 1, 'Derrota': 0})
-            evolution_data.append({'Time': visitante, 'Jogo': row['Jogo'], 'Resultado': 'Derrota', 'Data_Jogo': row['Data_dt'], 'Vitória': 0, 'Derrota': 1})
-        elif vencedor == visitante:
-            evolution_data.append({'Time': visitante, 'Jogo': row['Jogo'], 'Resultado': 'Vitória', 'Data_Jogo': row['Data_dt'], 'Vitória': 1, 'Derrota': 0})
-            evolution_data.append({'Time': casa, 'Jogo': row['Jogo'], 'Resultado': 'Derrota', 'Data_Jogo': row['Data_dt'], 'Vitória': 0, 'Derrota': 1})
-
-    df_evo = pd.DataFrame(evolution_data)
-        
-    # 2. Calcula o acumulado por time, garantindo a ordenação
-    df_evo = df_evo.sort_values(by=['Time', 'Data_Jogo'])
-    
-    df_evo['Vitorias Acumuladas'] = df_evo.groupby('Time')['Vitória'].cumsum()
-    df_evo['Derrotas Acumuladas'] = df_evo.groupby('Time')['Derrota'].cumsum()
-    
-    # Adiciona um índice de jogo (sequencial por time) para o eixo X do gráfico
-    df_evo['Total Jogos'] = df_evo.groupby('Time').cumcount() + 1
-    
-    return df_evo
-
-# --- 4. NOVA FUNÇÃO: PLOTAGEM ---
-
-def plot_win_loss_evolution(df_evo, selected_teams):
-    """Cria o gráfico de evolução W/L usando Altair."""
-    
-    # Filtra os times selecionados
-    df_plot = df_evo[df_evo['Time'].isin(selected_teams)]
-    
-    if df_plot.empty:
-        st.info("Nenhum time selecionado ou nenhum dado disponível para o(s) time(s) selecionado(s).")
-        return
-
-    # Gráfico de Linhas (Evolução de Vitórias)
-    chart = alt.Chart(df_plot).mark_line(point=True).encode(
-        x=alt.X('Total Jogos', axis=alt.Axis(title='Jogos Disputados', tickMinStep=1)),
-        y=alt.Y('Vitorias Acumuladas', axis=alt.Axis(title='Vitórias Acumuladas')),
-        color=alt.Color('Time', legend=alt.Legend(title="Time")),
-        tooltip=['Time', 'Jogo', 'Resultado', 'Vitorias Acumuladas', 'Derrotas Acumuladas']
-    ).properties(
-        title='Evolução de Vitórias Acumuladas por Time'
-    ).interactive()
-
-    st.altair_chart(chart, use_container_width=True)
-
-
-# --- 5. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
+# --- 3. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
 
 def main():
     
@@ -309,34 +239,7 @@ def main():
 
     st.markdown("---")
     
-    # --- GRÁFICO DE EVOLUÇÃO W/L ---
-    st.header("📈 Gráfico de Evolução de Vitórias Acumuladas")
-    
-    df_evo = process_for_win_loss_evolution(df_events)
-    
-    # CORREÇÃO CRÍTICA: Verifica se há dados de evolução antes de tentar o plot
-    if df_evo.empty:
-        st.info("Não há dados de jogos finalizados para calcular o gráfico de evolução.")
-    else:
-        # Lógica de Plotagem (só executa se df_evo não estiver vazio)
-        all_teams = sorted(df_evo['Time'].unique().tolist())
-        
-        # Seleciona os primeiros 5 times por padrão
-        default_teams = all_teams[:5]
-        
-        selected_teams = st.sidebar.multiselect(
-            "Selecione os Times para o Gráfico:",
-            options=all_teams,
-            default=default_teams,
-            key='team_selector'
-        )
-        
-        plot_win_loss_evolution(df_evo, selected_teams)
-    
-    st.markdown("---")
-
     # --- TABELAS DETALHADAS ---
-    # As tabelas continuam a funcionar perfeitamente, garantindo que os outros dados sejam mantidos.
     
     # 1. Jogos em Andamento (Ao Vivo)
     st.header("🔴 Jogos Ao Vivo")
@@ -366,6 +269,19 @@ def main():
         )
     else:
         st.info("Nenhum resultado finalizado encontrado.")
+
+    # 3. Próximos Jogos Agendados
+    st.header("📅 Próximos Jogos")
+    df_scheduled = df_events[df_events['Status'] == 'Agendado'].sort_values(by=['Data', 'Hora'])
+    
+    if not df_scheduled.empty:
+        st.dataframe(
+            df_scheduled[['Data', 'Hora', 'Jogo', 'Casa', 'Visitante', 'Detalhe Status']],
+            hide_index=True,
+            use_container_width=True
+        )
+    else:
+        st.info("Nenhum jogo agendado para o período do Scoreboard.")
 
 
 if __name__ == '__main__':
