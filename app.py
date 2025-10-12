@@ -8,15 +8,56 @@ from dateutil.parser import isoparse
 # Configuração da página
 st.set_page_config(
     page_title="NFL Dashboard",
-    layout="wide", # Essencial para que as colunas laterais tenham largura
+    layout="wide", # Essencial para que a largura funcione
     initial_sidebar_state="collapsed" 
 )
 
-# --- A SEÇÃO 0 (INJEÇÃO DE CSS) ESTÁ REMOVIDA PARA GARANTIR ESTABILIDADE ---
+# --- CORREÇÃO DE LAYOUT CSS ESTÁVEL ---
+# Força a centralização e largura máxima, o que evita o bug constante do Streamlit.
+st.markdown("""
+<style>
+/* Centraliza o bloco principal do aplicativo e define a largura MÁXIMA */
+div[data-testid="stVerticalBlock"] {
+    width: 100%;
+    max-width: 1000px; /* Largura máxima desejada para centralizar o conteúdo */
+    margin: 0 auto; /* Força a centralização horizontal */
+}
+
+/* Remove o padding lateral do container principal para usar a largura total de 1000px */
+.block-container {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+    padding-left: 0rem;
+    padding-right: 0rem;
+}
+
+.result-card {
+    border: 1px solid #ddd;
+    padding: 15px;
+    margin-bottom: 10px;
+    border-radius: 8px;
+    background-color: #f9f9f9;
+    box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+}
+.home-team, .away-team {
+    font-weight: bold;
+}
+.score {
+    font-size: 1.2em;
+    font-weight: bold;
+}
+.game-info {
+    font-size: 0.9em;
+    color: #555;
+}
+</style>
+""", unsafe_allow_html=True)
+# -------------------------------------------------------------
 
 
 # --- 1. CONFIGURAÇÃO DE LOGOS E API ---
 
+# VOLTAMOS À URL ORIGINAL DA API
 API_URL_EVENTS_2025 = "https://partners.api.espn.com/v2/sports/football/nfl/events?dates=2025"
 
 # Mapeamento para garantir que abreviações sejam traduzidas corretamente para a URL do logo
@@ -26,7 +67,7 @@ LOGO_MAP = {
     "HOU": "hou", "IND": "ind", "JAX": "jac", "KC": "kc", "LAC": "lac", "LAR": "lar", 
     "LV": "rai", "MIA": "mia", "MIN": "min", "NE": "ne", "NO": "no", "NYG": "nyg", 
     "NYJ": "nyj", "PHI": "phi", "PIT": "pit", "SEA": "sea", "TB": "tb", "TEN": "ten", 
-    "WAS": "was", "ARI": "ari"
+    "WAS": "was", "ARI": "ari", "WSH": "wsh", "DET": "det"
 }
 
 def get_logo_url(team_abbr):
@@ -54,15 +95,15 @@ def get_period_name(period):
 def get_event_data(event):
     """
     Extrai e formata os dados principais de um único evento.
-    (Conteúdo robusto mantido inalterado para brevidade)
+    (Lógica mantida como no seu arquivo)
     """
-    
     data_formatada = "N/A"
-    hora_formatada = "N/A"
     status_pt = "N/A"
-    winner_team = "A definir"
+    winner_team_abbr = "A definir"
     detail_status = "N/A" 
-    
+    home_team_abbr = "N/A"
+    away_team_abbr = "N/A"
+
     try:
         comp = event['competitions'][0]
         date_iso = comp.get('date')
@@ -71,39 +112,42 @@ def get_event_data(event):
             try:
                 dt_utc = isoparse(date_iso) 
                 dt_brt = dt_utc - pd.Timedelta(hours=3)
-
                 data_formatada = dt_brt.strftime('%d/%m/%Y')
-                hora_formatada = dt_brt.strftime('%H:%M') + ' BRT'
             except Exception:
                 pass 
 
-        status_type = comp.get('status', {}).get('type', {})
-        status_en = status_type.get('description')
-        
-        status_map = {
-            'Final': 'Finalizado',
-            'Final/OT': 'Finalizado (OT)',
-            'In Progress': 'Em Andamento',
-            'Scheduled': 'Agendado'
-        }
-        status_pt = status_map.get(status_en, status_en)
-        
-        detail_status_raw = comp.get('status', {}).get('detail')
-        if detail_status_raw:
-            detail_status = detail_status_raw
-        
-        if status_pt == 'Em Andamento' and (detail_status == 'N/A' or not detail_status_raw):
-            clock = comp.get('status', {}).get('displayClock', '')
-            period_num = comp.get('status', {}).get('period', 0)
-            period_name = get_period_name(period_num)
-            
+        status = comp.get('status', {}) 
+        status_type = status.get('type', {})
+        status_text_check = str(status_type).lower() 
+
+        if 'final' in status_text_check:
+            status_pt = 'Finalizado (OT)' if 'ot' in status_text_check or 'overtime' in status_text_check else 'Finalizado'
+        elif status_type.get('state') == 'in':
+            status_pt = 'Em Andamento'
+        elif status_type.get('state') == 'pre':
+            status_pt = 'Agendado'
+        else:
+            status_pt = status_type.get('description', 'Status Desconhecido') 
+
+        detail_status = status.get('detail', status_type.get('shortDetail', 'N/A'))
+
+        if status_pt == 'Em Andamento':
+            clock = status.get('displayClock', '')
+            period_name = get_period_name(status.get('period', 0))
             if clock and period_name:
-                detail_status = f"{clock} - {period_name}"
-            elif status_type.get('shortDetail'):
-                detail_status = status_type.get('shortDetail', 'Em Andamento')
-        elif detail_status == 'N/A' and status_type.get('shortDetail'):
-            detail_status = status_type.get('shortDetail', 'N/A')
-        
+                detail_status = f"{period_name} - {clock}"
+            else:
+                detail_status = status_type.get('shortDetail', 'Ao Vivo')
+
+        elif status_pt == 'Finalizado' or status_pt == 'Finalizado (OT)':
+            detail_status = status_type.get('shortDetail', 'Final')
+
+        elif status_pt == 'Agendado':
+            dt_utc = isoparse(date_iso) 
+            dt_brt = dt_utc - pd.Timedelta(hours=3)
+            detail_status = dt_brt.strftime('%H:%M BRT')
+
+
         competitors = comp.get('competitors', [])
         home_team = {} 
         away_team = {} 
@@ -111,76 +155,61 @@ def get_event_data(event):
         if len(competitors) >= 2:
             c1 = competitors[0]
             c2 = competitors[1]
-            
-            c1 = c1 if isinstance(c1, dict) else {}
-            c2 = c2 if isinstance(c2, dict) else {}
 
             if c1.get('homeAway') == 'home':
-                home_team = c1
-                away_team = c2
+                home_team, away_team = c1, c2
             elif c2.get('homeAway') == 'home':
-                home_team = c2
-                away_team = c1
+                home_team, away_team = c2, c1
             else:
-                home_team = c1
-                away_team = c2
-                
-        home_score = home_team.get('score', {}).get('displayValue', '0')
-        away_score = away_team.get('score', {}).get('displayValue', '0')
-        
-        home_abbr = home_team.get('team', {}).get('abbreviation', 'N/A')
-        away_abbr = away_team.get('team', {}).get('abbreviation', 'N/A')
+                home_team, away_team = c1, c2
 
-        home_display_name = home_team.get('team', {}).get('displayName', 'Time Casa')
-        away_display_name = away_team.get('team', {}).get('displayName', 'Time Visitante')
+        try:
+            home_score = int(home_team.get('score', {}).get('value', 0.0))
+        except (TypeError, ValueError):
+            home_score = 0
             
+        try:
+            away_score = int(away_team.get('score', {}).get('value', 0.0))
+        except (TypeError, ValueError):
+            away_score = 0
+
+        home_team_abbr = home_team.get('team', {}).get('abbreviation', 'CASA')
+        away_team_abbr = away_team.get('team', {}).get('abbreviation', 'FORA')
+
         if status_pt.startswith('Finalizado'):
-            try:
-                if home_score.isdigit() and away_score.isdigit():
-                    if float(home_score) > float(away_score):
-                        winner_team = home_team.get('team', {}).get('abbreviation', home_display_name)
-                    elif float(away_score) > float(home_score):
-                        winner_team = away_team.get('team', {}).get('abbreviation', away_display_name)
-                    else:
-                        winner_team = "Empate"
-                else:
-                    winner_team = "N/A"
-            except Exception:
-                winner_team = "N/A"
+            if home_score > away_score:
+                winner_team_abbr = home_team_abbr
+            elif away_score > home_score:
+                winner_team_abbr = away_team_abbr
+            else:
+                winner_team_abbr = "Empate"
+
 
         return {
             'Jogo': event.get('name', 'N/A'),
             'Data': data_formatada,
-            'Hora': hora_formatada,
-            'Status': status_pt,
-            'Casa': home_display_name,
-            'Visitante': away_display_name,
-            'Abrev. Casa': home_abbr,
-            'Abrev. Visitante': away_abbr,
-            'Vencedor': winner_team,
+            'Status': status_pt, 
+            'Casa': home_team_abbr,
+            'Visitante': away_team_abbr,
+            'Vencedor': winner_team_abbr,
             'Score Casa': home_score,
             'Score Visitante': away_score,
-            'Detalhe Status': detail_status
+            'Detalhe Status': detail_status,
         }
-        
+
     except Exception as e:
         return {
-            'Jogo': 'Erro de Estrutura de Dados',
-            'Data': 'N/A',
-            'Hora': 'N/A',
-            'Status': 'ERRO',
-            'Casa': 'ERRO DE PROCESSAMENTO',
-            'Visitante': 'ERRO DE PROCESSAMENTO',
-            'Abrev. Casa': 'N/A',
-            'Abrev. Visitante': 'N/A',
-            'Vencedor': 'N/A',
-            'Score Casa': 'N/A',
-            'Score Visitante': 'N/A',
-            'Detalhe Status': f'Falha na extração: {type(e).__name__}'
+            'Jogo': 'Erro de Estrutura de Dados', 'Data': 'N/A',
+            'Status': 'ERRO', 'Casa': 'ERRO', 'Visitante': 'ERRO',
+            'Vencedor': 'N/A', 'Score Casa': 'N/A', 'Score Visitante': 'N/A',
+            'Detalhe Status': f'Falha na extração: {type(e).__name__}',
         }
 
 def load_data(api_url=API_URL_EVENTS_2025):
-    """Busca e normaliza os dados da API de Events da ESPN (2025)."""
+    """
+    Busca e normaliza os dados da API de Events da ESPN (2025)
+    **USANDO REQUISIÇÃO REAL À API.**
+    """
     
     st.info(f"Buscando eventos da NFL 2025 (URL: {api_url})...")
     
@@ -203,7 +232,7 @@ def load_data(api_url=API_URL_EVENTS_2025):
         return pd.DataFrame()
         
     events_data = [get_event_data(e) for e in events_list]
-    events_data = [item for item in events_data if item is not None]
+    events_data = [item for item in events_data if item is not None and item['Status'] != 'ERRO']
         
     df = pd.DataFrame(events_data)
     return df
@@ -215,46 +244,20 @@ def display_final_results_styled(df_results):
     
     # Define o número de colunas (3 cards por linha)
     cols = st.columns(3)
-    
-    # Estilos CSS dos cards (Injetados localmente para garantir renderização)
-    card_styles = """
-    <style>
-    .result-card {
-        border: 1px solid #ddd;
-        padding: 15px;
-        margin-bottom: 10px;
-        border-radius: 8px;
-        background-color: #f9f9f9;
-    }
-    .home-team, .away-team {
-        font-weight: bold;
-    }
-    .score {
-        font-size: 1.2em;
-        font-weight: bold;
-    }
-    .game-info {
-        font-size: 0.9em;
-        color: #555;
-    }
-    </style>
-    """
-    st.markdown(card_styles, unsafe_allow_html=True) 
 
     for i, row in df_results.iterrows():
         col = cols[i % 3] 
         
-        home_logo_url = get_logo_url(row['Abrev. Casa'])
-        away_logo_url = get_logo_url(row['Abrev. Visitante'])
+        home_logo_url = get_logo_url(row['Casa'])
+        away_logo_url = get_logo_url(row['Visitante'])
         
         status_text = row['Detalhe Status']
         if row['Status'].startswith('Finalizado'):
-            status_style = 'color: green; font-weight: bold;'
+            status_style = 'color: #1a9953; font-weight: bold;'
         elif row['Status'] == 'Agendado':
-             status_style = 'color: orange; font-weight: bold;'
+             status_style = 'color: #ff9900; font-weight: bold;'
         else:
-            status_style = 'color: blue; font-weight: bold;'
-
+            status_style = 'color: #007bff; font-weight: bold;'
 
         # Monta o HTML do card
         card_html = f"""
@@ -265,22 +268,22 @@ def display_final_results_styled(df_results):
             
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
                 <div class="home-team" style="display: flex; align-items: center;">
-                    <img src="{home_logo_url}" style="margin-right: 5px;"/>
-                    {row['Abrev. Casa']} ({row['Casa']})
+                    <img src="{home_logo_url}" style="margin-right: 5px; height: 30px; width: 30px;"/>
+                    {row['Casa']} 
                 </div>
                 <div class="score">{row['Score Casa']}</div>
             </div>
             
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div class="away-team" style="display: flex; align-items: center;">
-                    <img src="{away_logo_url}" style="margin-right: 5px;"/>
-                    {row['Abrev. Visitante']} ({row['Visitante']})
+                    <img src="{away_logo_url}" style="margin-right: 5px; height: 30px; width: 30px;"/>
+                    {row['Visitante']} 
                 </div>
                 <div class="score">{row['Score Visitante']}</div>
             </div>
             
             <div class="game-info" style="text-align: center; margin-top: 10px;">
-                {row['Data']} às {row['Hora']}
+                Jogo: {row['Data']}
             </div>
         </div>
         """
@@ -294,7 +297,7 @@ def main():
     
     league_name, current_season = get_league_metadata()
     
-    # --- DEFINIÇÕES DA SIDEBAR (FEITAS ANTES DAS COLUNAS PRINCIPAIS) ---
+    # --- DEFINIÇÕES DA SIDEBAR ---
     st.sidebar.header("Controles")
     st.sidebar.markdown(f"**Liga:** {league_name}")
     st.sidebar.markdown(f"**Temporada:** {current_season} (Todos os Eventos)")
@@ -302,77 +305,83 @@ def main():
     
     if st.sidebar.button("Recarregar Dados Agora"):
         st.rerun() 
-    # ------------------------------------------------------------------
+    # -----------------------------
 
-    # NOVO: Define colunas laterais vazias para criar a margem centralizada
-    # 15% (margem esquerda) | 70% (conteúdo) | 15% (margem direita)
-    col_left, col_center, col_right = st.columns([15, 70, 15]) 
-
-    # Todo o conteúdo principal do dashboard deve ir para a coluna central
-    with col_center:
-        st.title(f"🏈 Dashboard {league_name} - {current_season}")
-        st.markdown("---")
-            
-        df_events = load_data()
-
-        if df_events.empty:
-            st.warning("Não foi possível carregar os dados. Verifique a API.")
-            return
-
-        # --- MÉTRICAS (KPIS) ---
-        st.header("Visão Geral do Status dos Jogos")
+    # O CONTEÚDO AGORA ESTÁ DIRETAMENTE NA PÁGINA COM CENTRALIZAÇÃO POR CSS
+    st.title(f"🏈 Dashboard {league_name} - {current_season}")
+    st.markdown("---")
         
-        status_counts = df_events['Status'].value_counts()
-        
-        total_games = len(df_events)
-        finalizados = status_counts.get('Finalizado', 0) + status_counts.get('Finalizado (OT)', 0)
-        em_andamento = status_counts.get('Em Andamento', 0)
-        agendados = status_counts.get('Agendado', 0)
-        erros = status_counts.get('ERRO', 0)
-        
-        col1, col2, col3, col4, col5 = st.columns(5)
-        col1.metric("Total de Jogos", total_games)
-        col2.metric("Finalizados", finalizados)
-        col3.metric("Em Andamento", em_andamento)
-        col4.metric("Agendados", agendados)
-        col5.metric("Erros de Extração", erros)
+    df_events = load_data()
 
-        st.markdown("---")
-        
-        # --- RESULTADOS RECENTES (CARDS) ---
-        st.header("✅ Resultados Recentes")
-        df_finalized = df_events[
-            df_events['Status'].str.startswith('Finalizado', na=False)
-        ].sort_values(by='Data', ascending=False)
+    if df_events.empty:
+        st.warning("Não foi possível carregar os dados. Verifique a API.")
+        return
 
-        if not df_finalized.empty:
-            display_final_results_styled(df_finalized.head(9))
-        else:
-            st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum resultado finalizado encontrado.</p>', unsafe_allow_html=True)
+    # --- MÉTRICAS (KPIS) ---
+    st.header("Visão Geral do Status dos Jogos")
+    
+    status_counts = df_events['Status'].value_counts()
+    
+    total_games = len(df_events)
+    finalizados = status_counts.get('Finalizado', 0) + status_counts.get('Finalizado (OT)', 0)
+    em_andamento = status_counts.get('Em Andamento', 0)
+    agendados = status_counts.get('Agendado', 0)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total de Jogos", total_games)
+    col2.metric("Finalizados", finalizados)
+    col3.metric("Em Andamento", em_andamento)
+    col4.metric("Agendados", agendados)
 
-        # SEPARADOR ENTRE RESULTADOS RECENTES E AGENDADOS
-        st.markdown("---")
+    st.markdown("---")
+    
+    # --- JOGOS EM ANDAMENTO ---
+    st.header("▶️ Jogos ao Vivo")
+    df_in_progress = df_events[
+        df_events['Status'] == 'Em Andamento'
+    ].sort_values(by='Detalhe Status', ascending=False)
+    
+    if not df_in_progress.empty:
+        display_final_results_styled(df_in_progress.head(3))
+    else:
+        st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum jogo em andamento no momento.</p>', unsafe_allow_html=True)
 
-        # --- JOGOS AGENDADOS ---
-        st.header("⏳ Próximos Jogos")
-        df_scheduled = df_events[
-            df_events['Status'] == 'Agendado'
-        ].sort_values(by='Data', ascending=True)
+    st.markdown("---")
+    
+    # --- RESULTADOS RECENTES (CARDS) ---
+    st.header("✅ Resultados Recentes")
+    df_finalized = df_events[
+        df_events['Status'].str.startswith('Finalizado', na=False)
+    ].sort_values(by='Data', ascending=False)
 
-        if not df_scheduled.empty:
-            display_final_results_styled(df_scheduled.head(9))
-        else:
-            st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum jogo agendado nos dados fornecidos.</p>', unsafe_allow_html=True)
+    if not df_finalized.empty:
+        display_final_results_styled(df_finalized.head(6))
+    else:
+        st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum resultado finalizado encontrado.</p>', unsafe_allow_html=True)
 
-        # SEPARADOR ENTRE AGENDADOS E HISTÓRICO COMPLETO
-        st.markdown("---")
+    # SEPARADOR ENTRE RESULTADOS RECENTES E AGENDADOS
+    st.markdown("---")
 
-        # --- HISTÓRICO COMPLETO DA TEMPORADA (TABELA) ---
-        st.header("📚 Histórico Completo da Temporada")
-        st.dataframe(
-            df_events[['Data', 'Hora', 'Jogo', 'Status', 'Vencedor', 'Score Casa', 'Score Visitante', 'Detalhe Status']],
-            use_container_width=True
-        )
+    # --- JOGOS AGENDADOS ---
+    st.header("⏳ Próximos Jogos")
+    df_scheduled = df_events[
+        df_events['Status'] == 'Agendado'
+    ].sort_values(by='Data', ascending=True)
+
+    if not df_scheduled.empty:
+        display_final_results_styled(df_scheduled.head(6))
+    else:
+        st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum jogo agendado nos dados fornecidos.</p>', unsafe_allow_html=True)
+
+    # SEPARADOR ENTRE AGENDADOS E HISTÓRICO COMPLETO
+    st.markdown("---")
+
+    # --- HISTÓRICO COMPLETO DA TEMPORADA (TABELA) ---
+    st.header("📚 Histórico Completo da Temporada")
+    st.dataframe(
+        df_events[['Data', 'Status', 'Jogo', 'Vencedor', 'Score Casa', 'Score Visitante', 'Detalhe Status']],
+        use_container_width=True
+    )
 
 
 if __name__ == '__main__':
