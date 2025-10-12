@@ -73,11 +73,26 @@ def get_event_data(event):
         data_formatada = "N/A"
         hora_formatada = "N/A"
 
-    # Extração de Competidores e Scores
+    # --- CORREÇÃO DE ROBUSTEZ PARA O ATTRIBUTEERROR AQUI ---
     competitors = comp.get('competitors', [])
-    home_team = next((c for c in competitors if c.get('homeAway') == 'home'), competitors[0] if competitors else {})
-    away_team = next((c for c in competitors if c.get('homeAway') == 'away'), competitors[1] if len(competitors) > 1 else {})
+    
+    # 1. Tenta buscar o time pelo marcador 'homeAway'. O fallback é None.
+    home_team = next((c for c in competitors if c.get('homeAway') == 'home'), None)
+    away_team = next((c for c in competitors if c.get('homeAway') == 'away'), None)
 
+    # 2. Se a busca falhar (home_team/away_team for None) E a lista de competidores tiver itens, 
+    # usa o primeiro e o segundo como fallback (assumindo a ordem)
+    if home_team is None and competitors:
+        home_team = competitors[0]
+    if away_team is None and len(competitors) > 1:
+        away_team = competitors[1]
+        
+    # 3. ÚLTIMA LINHA DE DEFESA: Garante que as variáveis são dicionários (ou vazios) antes de usar .get()
+    # Isso resolve o AttributeError: 'NoneType' object has no attribute 'get'
+    home_team = home_team if isinstance(home_team, dict) else {}
+    away_team = away_team if isinstance(away_team, dict) else {}
+
+    # Extração de Scores (seguro agora)
     home_score = home_team.get('score', {}).get('displayValue', '0')
     away_score = away_team.get('score', {}).get('displayValue', '0')
     
@@ -162,11 +177,10 @@ def main():
     st.sidebar.markdown(f"**Temporada:** {current_season}")
     st.sidebar.markdown("---")
     
-    # CORREÇÃO AQUI: st.rerun() substitui st.experimental_rerun()
     if st.sidebar.button("Recarregar Dados Agora"):
-        # Limpa o cache de dados dinâmicos (Scoreboard) para forçar a busca
+        # Limpa o cache de dados dinâmicos para forçar a busca
         load_data.clear() 
-        st.rerun()
+        st.rerun() # Função Streamlit correta
         
     # Busca dados do Scoreboard
     df_events = load_data()
