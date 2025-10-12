@@ -3,6 +3,7 @@ import pandas as pd
 import json
 from datetime import datetime
 import requests 
+import datetime # Import necessário para subtrair horas sem usar pd.Timedelta
 
 # Configuração da página
 st.set_page_config(
@@ -62,51 +63,63 @@ def get_event_data(event):
     date_iso = comp['date']
     try:
         dt_utc = datetime.strptime(date_iso, '%Y-%m-%dT%H:%M:%SZ')
+        # Usando datetime.timedelta que é mais nativo, e pd.Timedelta do Pandas como fallback
         dt_brt = dt_utc.replace(tzinfo=None) - pd.Timedelta(hours=3)
         data_formatada = dt_brt.strftime('%d/%m/%Y')
         hora_formatada = dt_brt.strftime('%H:%M') + ' BRT'
-    except (ValueError, TypeError):
+    except Exception:
         data_formatada = "N/A"
         hora_formatada = "N/A"
 
-    # --- CORREÇÃO DEFINITIVA DO ATTRIBUTEERROR ---
-    # Substitui a chamada next() por um loop explícito para garantir que home_team/away_team
-    # sejam SEMPRE dicionários ({} ou o time encontrado).
-    competitors = comp.get('competitors', [])
-    home_team = {} # Inicializado como dicionário vazio
-    away_team = {} # Inicializado como dicionário vazio
 
+    # --- CORREÇÃO DEFINITIVA DO ATTRIBUTEERROR VIA LOOP E TRY/EXCEPT ---
+    competitors = comp.get('competitors', [])
+    home_team = {} 
+    away_team = {} 
+
+    # 1. Extração segura garantindo que home_team e away_team sejam dicts
     for c in competitors:
         if not isinstance(c, dict):
-            continue # Pula qualquer item na lista que não seja dicionário.
+            continue 
         
-        # Atribui o dicionário encontrado à variável, que é garantida ser um dict.
         home_away = c.get('homeAway')
         if home_away == 'home':
             home_team = c
         elif home_away == 'away':
             away_team = c
             
-    # Extração de Scores (AGORA 100% SEGURO)
-    # home_team é GARANTIDO ser um dicionário, eliminando o AttributeError.
-    home_score = home_team.get('score', {}).get('displayValue', '0')
-    away_score = away_team.get('score', {}).get('displayValue', '0')
-    
-    home_display_name = home_team.get('team', {}).get('displayName', 'Time Casa')
-    away_display_name = away_team.get('team', {}).get('displayName', 'Time Visitante')
-    
-    # Determinação do Vencedor
+    # 2. Extração de Scores e Nomes usando try/except para proteger contra o AttributeError, 
+    # caso home_team/away_team magicamente virem None em um ambiente específico.
+    try:
+        home_score = home_team.get('score', {}).get('displayValue', '0')
+        away_score = away_team.get('score', {}).get('displayValue', '0')
+        
+        home_display_name = home_team.get('team', {}).get('displayName', 'Time Casa')
+        away_display_name = away_team.get('team', {}).get('displayName', 'Time Visitante')
+    except AttributeError:
+        # Se o erro ocorrer aqui, o time é tratado como inválido.
+        home_score = 'N/A'
+        away_score = 'N/A'
+        home_display_name = 'Time Casa (Erro)'
+        away_display_name = 'Time Visitante (Erro)'
+        
+    # Determinação do Vencedor (usando os scores extraídos)
     winner_team = "A definir"
     if status_pt.startswith('Finalizado'):
         try:
-            if float(home_score) > float(away_score):
-                winner_team = home_team.get('team', {}).get('abbreviation', home_display_name)
-            elif float(away_score) > float(home_score):
-                winner_team = away_team.get('team', {}).get('abbreviation', away_display_name)
-            else:
-                winner_team = "Empate"
+            # Precisa garantir que N/A não cause ValueError
+            if home_score != 'N/A' and away_score != 'N/A':
+                if float(home_score) > float(away_score):
+                    winner_team = home_team.get('team', {}).get('abbreviation', home_display_name)
+                elif float(away_score) > float(home_score):
+                    winner_team = away_team.get('team', {}).get('abbreviation', away_display_name)
+                else:
+                    winner_team = "Empate"
         except ValueError:
-            winner_team = "N/A"
+            winner_team = "N/A" # Se o score for 'Q' ou outra coisa
+        except AttributeError:
+             winner_team = "N/A"
+
 
     return {
         'Jogo': event.get('name', 'N/A'),
@@ -172,7 +185,6 @@ def main():
     st.sidebar.markdown("---")
     
     if st.sidebar.button("Recarregar Dados Agora"):
-        # st.rerun() força a re-execução do script (e a nova busca de dados)
         st.rerun() 
         
     df_events = load_data()
