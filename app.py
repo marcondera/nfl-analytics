@@ -3,7 +3,7 @@ import pandas as pd
 import json
 from datetime import datetime
 import requests 
-from dateutil.parser import isoparse # <-- Importação para análise robusta de data
+from dateutil.parser import isoparse # Importação para análise robusta de data
 
 # Configuração da página
 st.set_page_config(
@@ -13,13 +13,12 @@ st.set_page_config(
 )
 
 # --- 1. CONFIGURAÇÃO DA API (FOCANDO NO LINK SOLICITADO) ---
-# Endpoint estável e solicitado pelo usuário
+# Endpoint estável e solicitado pelo usuário.
 API_URL_EVENTS_2025 = "https://partners.api.espn.com/v2/sports/football/nfl/events?dates=2025"
 
 
 # --- 2. FUNÇÕES DE BUSCA E PROCESSAMENTO DE DADOS ---
 
-# Hardcoding metadata para focar no endpoint principal e garantir estabilidade.
 def get_league_metadata():
     """Retorna informações estáticas da liga."""
     return 'NFL', '2025'
@@ -31,7 +30,7 @@ def get_event_data(event):
     Contém bloco try/except abrangente para garantir que o código NUNCA quebre.
     """
     
-    # ULTIMATE FAIL-SAFE
+    # ULTIMATE FAIL-SAFE: Tenta extrair TUDO. Se falhar, retorna linha de ERRO.
     try:
         comp = event['competitions'][0]
         
@@ -47,21 +46,15 @@ def get_event_data(event):
         }
         status_pt = status_map.get(status_en, status_en)
         
-        # --- CORREÇÃO DA DATA/HORA ---
+        # --- CORREÇÃO DA DATA/HORA (usando isoparse) ---
         date_iso = comp['date']
         try:
-            # 1. Usa isoparse para analisar a string ISO 8601 de forma robusta.
-            # 2. Assume que a API retorna em UTC e usa o timezone da data.
             dt_utc = isoparse(date_iso) 
-            
-            # 3. Converte para o fuso horário de Brasília (UTC-3).
-            #    Se a data não tiver timezone, ele assume que é UTC (Z).
-            dt_brt = dt_utc - pd.Timedelta(hours=3)
+            dt_brt = dt_utc - pd.Timedelta(hours=3) # Converte para BRT (UTC-3)
 
             data_formatada = dt_brt.strftime('%d/%m/%Y')
             hora_formatada = dt_brt.strftime('%H:%M') + ' BRT'
         except Exception:
-            # Se a data ainda falhar, retorna N/A
             data_formatada = "N/A"
             hora_formatada = "N/A"
         # --- FIM DA CORREÇÃO DE DATA/HORA ---
@@ -89,7 +82,7 @@ def get_event_data(event):
                 home_team = c1
                 away_team = c2
                 
-        # Extração de Scores e Nomes (validado pelo events (1).json)
+        # Extração de Scores e Nomes
         home_score = home_team.get('score', {}).get('displayValue', '0')
         away_score = away_team.get('score', {}).get('displayValue', '0')
         
@@ -123,10 +116,12 @@ def get_event_data(event):
             'Visitante': away_display_name,
             'Score Visitante': away_score,
             'Vencedor': winner_team,
-            'Detalhe Status': comp.get('status', {}).get('detail', 'N/A')
+            # EXTRAÇÃO ROBUSTA DO DETALHE STATUS (confirmada no events (1).json)
+            'Detalhe Status': comp.get('status', {}).get('detail', 'N/A') 
         }
         
     except Exception as e:
+        # Linha de ERRO para garantir que o app não quebre
         return {
             'Jogo': 'Erro de Estrutura de Dados',
             'Data': 'N/A',
@@ -239,7 +234,7 @@ def main():
     df_finalized = df_events[df_events['Status'].str.startswith('Finalizado', na=False)].sort_values(by='Data', ascending=False)
     
     if not df_finalized.empty:
-        results_df = df_finalized[['Data', 'Jogo', 'Vencedor', 'Score Casa', 'Score Visitante']].copy()
+        results_df = df_finalized[['Data', 'Jogo', 'Vencedor', 'Score Casa', 'Score Visitante', 'Detalhe Status']].copy()
         
         st.dataframe(
             results_df,
@@ -255,7 +250,7 @@ def main():
     
     if not df_scheduled.empty:
         st.dataframe(
-            df_scheduled[['Data', 'Hora', 'Jogo', 'Casa', 'Visitante']],
+            df_scheduled[['Data', 'Hora', 'Jogo', 'Casa', 'Visitante', 'Detalhe Status']],
             hide_index=True,
             use_container_width=True
         )
