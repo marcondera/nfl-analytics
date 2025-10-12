@@ -207,7 +207,7 @@ def display_final_results_styled(df_finalized):
                 margin: 5px 0 !important; /* Espaçamento entre os cards */
                 box-shadow: 0 2px 5px rgba(0,0,0,0.4) !important;
                 color: #FAFAFA !important;
-                max-width: 350px !important;
+                max-width: 1350px !important;
             }
 
             /* Forçar o style do Streamlit a aceitar a estilização */
@@ -451,3 +451,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
