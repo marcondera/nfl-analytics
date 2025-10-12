@@ -60,19 +60,15 @@ def get_event_data(event):
         # --- FIM DA CORREÇÃO DE DATA/HORA ---
 
         # Extração do Status Principal
-        status_type = comp.get('status', {}).get('type', {})
+        status = comp.get('status', {}) # Dicionário de Status completo
+        status_type = status.get('type', {})
         
-        # Extrai o texto de todos os campos de status
-        status_en = status_type.get('description', '')
-        short_detail = status_type.get('shortDetail', '')
-        detail = status_type.get('detail', '')
-        
-        # --- FIX DEFINITIVO: Análise de Texto Pura ---
-        # Concatena todos os textos importantes para verificar 'final'
-        status_text_check = f"{status_en} {short_detail} {detail}".lower()
+        # --- FIX DEFINITIVO: Análise de String Completa do Status (Resolve problema de 'Final') ---
+        # Converte o dicionário 'status_type' inteiro para string e força minúsculas.
+        status_text_check = str(status_type).lower() 
 
         if 'final' in status_text_check:
-            # Se a palavra 'final' está presente, o jogo está concluído.
+            # Se a palavra 'final' está presente em QUALQUER lugar do dicionário de status/tipo
             if 'ot' in status_text_check or 'overtime' in status_text_check:
                 status_pt = 'Finalizado (OT)'
             else:
@@ -82,28 +78,24 @@ def get_event_data(event):
         elif status_type.get('state') == 'pre':
             status_pt = 'Agendado'
         else:
-            # Fallback para outros status (ex: Postponed)
-            status_pt = status_en 
+            # Fallback 
+            status_pt = status_type.get('description', 'Status Desconhecido') 
         # --- FIM FIX DEFINITIVO ---
 
         
-        detail_status_raw = comp.get('status', {}).get('detail')
-        if detail_status_raw:
-            detail_status = detail_status_raw
+        # O detalhe status é o que é exibido na tabela, o mais curto possível.
+        detail_status = status.get('detail', status_type.get('shortDetail', 'N/A'))
         
-        # --- LÓGICA DE CONSTRUÇÃO DO DETALHE STATUS ---
-        if status_pt == 'Em Andamento' and (detail_status == 'N/A' or not detail_status_raw):
-            clock = comp.get('status', {}).get('displayClock', '')
-            period_num = comp.get('status', {}).get('period', 0)
+        # --- LÓGICA DE CONSTRUÇÃO DO DETALHE STATUS (Para jogos 'Em Andamento') ---
+        if status_pt == 'Em Andamento' and ('N/A' in detail_status or not detail_status):
+            clock = status.get('displayClock', '')
+            period_num = status.get('period', 0)
             period_name = get_period_name(period_num)
             
             if clock and period_name:
                 detail_status = f"{clock} - {period_name}"
             elif status_type.get('shortDetail'):
                 detail_status = status_type.get('shortDetail', 'Em Andamento')
-        elif detail_status == 'N/A' and status_type.get('shortDetail'):
-            detail_status = status_type.get('shortDetail', 'N/A')
-        
         
         # 2. Extração dos times e scores
         competitors = comp.get('competitors', [])
@@ -134,7 +126,7 @@ def get_event_data(event):
         home_display_name = home_team.get('team', {}).get('displayName', 'Time Casa')
         away_display_name = away_team.get('team', {}).get('displayName', 'Time Visitante')
             
-        # Determinação do Vencedor (só ocorre se o status_pt for Finalizado)
+        # Determinação do Vencedor
         if status_pt.startswith('Finalizado'):
             try:
                 if home_score.isdigit() and away_score.isdigit():
@@ -211,8 +203,8 @@ def load_data(api_url=API_URL_EVENTS_2025):
 def process_for_win_loss_evolution(df_events):
     """Calcula as vitórias e derrotas acumuladas para cada time."""
     
-    # Este filtro usa o Status traduzido, que agora está garantido como 'Finalizado' se houver 'Final' no texto.
     df_results = df_events[
+        # Este filtro agora funcionará perfeitamente porque 'get_event_data' garante que 'Finalizado' está correto.
         df_events['Status'].str.startswith('Finalizado', na=False)
     ].copy()
     
@@ -285,7 +277,7 @@ def plot_win_loss_evolution(df_evo, selected_teams):
 
     # Exibe o gráfico no Streamlit
     st.pyplot(fig)
-    plt.close(fig) 
+    plt.close(fig) # Fecha a figura para liberar memória
 
 
 # --- 5. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
