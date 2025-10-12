@@ -3,7 +3,6 @@ import pandas as pd
 import json
 from datetime import datetime
 import requests 
-import datetime # Import necessário para subtrair horas sem usar pd.Timedelta
 
 # Configuração da página
 st.set_page_config(
@@ -12,10 +11,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 1. CONFIGURAÇÃO DAS APIS ---
-API_URL_SCOREBOARD = "http://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
+# --- 1. CONFIGURAÇÃO DAS APIS (AGORA APONTANDO PARA 2025) ---
+# Para buscar uma semana específica, usamos o formato: ?seasontype=2&season=2025&week=6
+# SeasonType 2 é para temporada regular.
+API_URL_SCOREBOARD_BASE = "http://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
+API_URL_SCOREBOARD_2025 = f"{API_URL_SCOREBOARD_BASE}?seasontype=2&season=2025&week=6"
 API_URL_LEAGUE_METADATA = "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl"
-
 
 # --- 2. FUNÇÕES DE BUSCA E PROCESSAMENTO DE DADOS (SEM CACHE) ---
 
@@ -28,15 +29,16 @@ def get_league_metadata(api_url=API_URL_LEAGUE_METADATA):
         
         league_name = data.get('name', 'NFL')
         
+        # Tenta extrair o ano da temporada
         season_ref = data.get('season', {}).get('$ref')
-        current_year = "N/A"
+        current_year = "2025" # Padrão para 2025, conforme solicitado
         if season_ref:
             parts = season_ref.split('/')
             current_year = parts[-1].split('?')[0]
             
         return league_name, current_year
     except Exception:
-        return 'NFL', 'N/A'
+        return 'NFL', '2025'
 
 
 def get_event_data(event):
@@ -71,24 +73,32 @@ def get_event_data(event):
         hora_formatada = "N/A"
 
 
-    # --- EXTRAÇÃO DE COMPETIDORES: LÓGICA ROBUSTA SEM TRY/EXCEPT GENÉRICO ---
-    # Garante que home_team/away_team são SEMPRE dicionários ({} ou o time).
+    # --- EXTRAÇÃO ULTRA-ROBUSTA DE COMPETIDORES: ELIMINA ATTRIBUTEERROR ---
     competitors = comp.get('competitors', [])
     home_team = {} 
     away_team = {} 
 
-    for c in competitors:
-        if not isinstance(c, dict):
-            continue 
+    # Lógica explícita if/else para garantir que home_team/away_team sejam sempre dicionários
+    if len(competitors) >= 2:
+        c1 = competitors[0]
+        c2 = competitors[1]
         
-        home_away = c.get('homeAway')
-        if home_away == 'home':
-            home_team = c
-        elif home_away == 'away':
-            away_team = c
+        # Garantindo que c1 e c2 são dicionários
+        if not isinstance(c1, dict): c1 = {}
+        if not isinstance(c2, dict): c2 = {}
+
+        if c1.get('homeAway') == 'home':
+            home_team = c1
+            away_team = c2
+        elif c2.get('homeAway') == 'home':
+            home_team = c2
+            away_team = c1
+        else:
+            # Fallback posicional se 'homeAway' não for definido, assumindo ordem padrão
+            home_team = c1
+            away_team = c2
             
-    # Extração de Scores e Nomes - Confia na robustez do loop e usa fallbacks em .get()
-    # Se 'score' não existir, retorna {}, se 'displayValue' não existir, retorna '0'.
+    # Extração de Scores e Nomes (AGORA SEGURO)
     home_score = home_team.get('score', {}).get('displayValue', '0')
     away_score = away_team.get('score', {}).get('displayValue', '0')
     
@@ -126,10 +136,10 @@ def get_event_data(event):
     }
 
 
-def load_data(api_url=API_URL_SCOREBOARD):
+def load_data(api_url=API_URL_SCOREBOARD_2025):
     """Busca e normaliza os dados diretamente da API de Scoreboard da ESPN."""
     
-    st.info(f"Buscando placares atualizados em tempo real...")
+    st.info(f"Buscando placares da NFL 2025 (Semana 6)...")
     
     try:
         response = requests.get(api_url)
@@ -146,7 +156,7 @@ def load_data(api_url=API_URL_SCOREBOARD):
     events_list = data.get('events')
     
     if not events_list:
-        st.info("Nenhum evento encontrado no Scoreboard da NFL para o período atual.")
+        st.info("Nenhum evento encontrado no Scoreboard da NFL para o período atual (2025).")
         return pd.DataFrame()
         
     events_data = [get_event_data(e) for e in events_list]
@@ -172,79 +182,3 @@ def main():
     # Barra Lateral com Metadados e Controles
     st.sidebar.markdown("### Controles")
     st.sidebar.markdown(f"**Liga:** {league_name}")
-    st.sidebar.markdown(f"**Temporada:** {current_season}")
-    st.sidebar.markdown("---")
-    
-    if st.sidebar.button("Recarregar Dados Agora"):
-        st.rerun() 
-        
-    df_events = load_data()
-
-    if df_events.empty:
-        return
-
-    # --- MÉTRICAS (KPIS) ---
-    st.header("Visão Geral do Status dos Jogos")
-    
-    status_counts = df_events['Status'].value_counts()
-    
-    total_games = len(df_events)
-    finalizados = status_counts.get('Finalizado', 0) + status_counts.get('Finalizado (OT)', 0)
-    em_andamento = status_counts.get('Em Andamento', 0)
-    agendados = status_counts.get('Agendado', 0)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total de Jogos", total_games)
-    col2.metric("Finalizados", finalizados)
-    col3.metric("Em Andamento", em_andamento)
-    col4.metric("Agendados", agendados)
-
-    st.markdown("---")
-
-    # --- TABELAS DETALHADAS ---
-    
-    # 1. Jogos em Andamento (Ao Vivo)
-    st.header("🔴 Jogos Ao Vivo")
-    df_in_progress = df_events[df_events['Status'] == 'Em Andamento'].sort_values(by='Detalhe Status', ascending=False)
-    
-    if not df_in_progress.empty:
-        st.dataframe(
-            df_in_progress[['Jogo', 'Detalhe Status', 'Casa', 'Score Casa', 'Visitante', 'Score Visitante']],
-            hide_index=True,
-            use_container_width=True
-        )
-    else:
-        st.info("Nenhum jogo em andamento no momento.")
-
-
-    # 2. Resultados Recentes (Finalizados)
-    st.header("✅ Resultados Finais")
-    df_finalized = df_events[df_events['Status'].str.startswith('Finalizado', na=False)].sort_values(by='Data', ascending=False)
-    
-    if not df_finalized.empty:
-        results_df = df_finalized[['Data', 'Jogo', 'Vencedor', 'Score Casa', 'Score Visitante']].copy()
-        
-        st.dataframe(
-            results_df,
-            hide_index=True,
-            use_container_width=True
-        )
-    else:
-        st.info("Nenhum resultado finalizado encontrado.")
-
-    # 3. Próximos Jogos Agendados
-    st.header("📅 Próximos Jogos")
-    df_scheduled = df_events[df_events['Status'] == 'Agendado'].sort_values(by=['Data', 'Hora'])
-    
-    if not df_scheduled.empty:
-        st.dataframe(
-            df_scheduled[['Data', 'Hora', 'Jogo', 'Casa', 'Visitante']],
-            hide_index=True,
-            use_container_width=True
-        )
-    else:
-        st.info("Nenhum jogo agendado para o período do Scoreboard.")
-
-
-if __name__ == '__main__':
-    main()
