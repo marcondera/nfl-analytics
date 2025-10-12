@@ -2,35 +2,61 @@ import streamlit as st
 import pandas as pd
 import json
 from datetime import datetime
-# Importamos a biblioteca 'requests' para buscar dados da internet
 import requests 
 
 # Configuração da página
 st.set_page_config(
-    page_title="NFL Dashboard 2025 - ESPN API",
+    page_title="NFL Scoreboard Dashboard",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- 1. CONFIGURAÇÃO DA API ---
-# URL da API que será buscada
-API_URL = "https://partners.api.espn.com/v2/sports/football/nfl/events?dates=2025"
+# --- 1. CONFIGURAÇÃO DAS APIS ---
+# API Principal: Placar e Jogos Atuais (Scoreboard)
+API_URL_SCOREBOARD = "http://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
+# API de Metadados: Informações Estáticas da Liga (Nome, Temporada)
+API_URL_LEAGUE_METADATA = "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl"
 
 
-# --- 2. FUNÇÕES DE PROCESSAMENTO DE DADOS ---
+# --- 2. FUNÇÕES DE BUSCA E PROCESSAMENTO DE DADOS ---
+
+@st.cache_data(ttl=3600) # Cache por 1 hora para dados estáticos
+def get_league_metadata(api_url=API_URL_LEAGUE_METADATA):
+    """Busca informações estáticas da liga (nome e ano da temporada)
+       na API de metadados.
+    """
+    try:
+        response = requests.get(api_url)
+        response.raise_for_status() 
+        data = response.json()
+        
+        league_name = data.get('name', 'NFL')
+        
+        # Tenta extrair o ano da temporada
+        season_ref = data.get('season', {}).get('$ref')
+        current_year = "N/A"
+        if season_ref:
+            # Ex: ".../seasons/2025" -> extrai "2025"
+            parts = season_ref.split('/')
+            current_year = parts[-1].split('?')[0]
+            
+        return league_name, current_year
+    except Exception:
+        # Retorna valores padrão em caso de falha na API
+        return 'NFL', 'N/A'
+
 
 def get_event_data(event):
     """Extrai e formata os dados principais de um único evento.
-    Acesso seguro a todas as chaves JSON.
+    Inclui acesso seguro a todas as chaves JSON para evitar KeyErrors.
     """
     
-    # 1. Acesso à Competição (principal bloco de dados do jogo)
     try:
         comp = event['competitions'][0]
     except (KeyError, IndexError):
         return None
 
-    # 2. Mapeamento e Tradução do Status
+    # Mapeamento e Tradução do Status
     status_type = comp['status'].get('type', {})
     status_en = status_type.get('description')
     
@@ -42,10 +68,9 @@ def get_event_data(event):
     }
     status_pt = status_map.get(status_en, status_en)
     
-    # 3. Formatação de Data e Hora (Ajuste para BRT = UTC-3)
+    # Formatação de Data e Hora (Ajuste para BRT = UTC-3)
     date_iso = comp['date']
     try:
-        # Usa o Pandas para o Timedelta, garantindo que o pandas seja importado
         dt_utc = datetime.strptime(date_iso, '%Y-%m-%dT%H:%M:%SZ')
         dt_brt = dt_utc.replace(tzinfo=None) - pd.Timedelta(hours=3)
         data_formatada = dt_brt.strftime('%d/%m/%Y')
@@ -54,20 +79,18 @@ def get_event_data(event):
         data_formatada = "N/A"
         hora_formatada = "N/A"
 
-    # 4. Extração de Competidores
+    # Extração de Competidores e Scores
     competitors = comp.get('competitors', [])
     home_team = next((c for c in competitors if c.get('homeAway') == 'home'), competitors[0] if competitors else {})
     away_team = next((c for c in competitors if c.get('homeAway') == 'away'), competitors[1] if len(competitors) > 1 else {})
 
-    # Extração de Scores (acesso seguro com .get())
     home_score = home_team.get('score', {}).get('displayValue', '0')
     away_score = away_team.get('score', {}).get('displayValue', '0')
     
-    # Extração de Nomes dos Times (com fallback)
     home_display_name = home_team.get('team', {}).get('displayName', 'Time Casa')
     away_display_name = away_team.get('team', {}).get('displayName', 'Time Visitante')
     
-    # 5. Determinação do Vencedor
+    # Determinação do Vencedor
     winner_team = "A definir"
     if status_pt.startswith('Finalizado'):
         try:
@@ -94,43 +117,35 @@ def get_event_data(event):
     }
 
 
-@st.cache_data
-def load_data(api_url=API_URL):
-    """Busca e normaliza os dados diretamente da API da ESPN."""
+@st.cache_data(ttl=60) # Cache por 60 segundos para dados dinâmicos de placar
+def load_data(api_url=API_URL_SCOREBOARD):
+    """Busca e normaliza os dados diretamente da API de Scoreboard da ESPN."""
     
-    st.info(f"Buscando dados em: {api_url}")
-    
+    # Tenta obter dados da API
     try:
-        # Faz a requisição HTTP GET
         response = requests.get(api_url)
-        response.raise_for_status() # Lança um erro para códigos de status 4xx/5xx
-
-        # Carrega o JSON
+        response.raise_for_status() 
         data = response.json()
         
     except requests.exceptions.RequestException as e:
-        st.error(f"Erro ao buscar dados da API. Verifique a URL e a chave de API (se aplicável): {e}")
+        st.error(f"Erro ao buscar dados da API. Verifique a URL e autenticação: {e}")
         return pd.DataFrame()
     except json.JSONDecodeError:
         st.error("Erro ao decodificar a resposta como JSON.")
         return pd.DataFrame()
 
-    # Adaptação Robusta à Chave 'events' (como discutido anteriormente)
+    # Scoreboard usa a chave 'events' diretamente
     events_list = data.get('events')
-    if not events_list:
-        events_list = data.get('data', {}).get('events')
-    if not events_list:
-        events_list = data.get('response', {}).get('events')
     
     if not events_list:
-        st.error("A lista de 'events' não foi encontrada na resposta da API.")
+        # Se não há eventos, exibe uma mensagem no dashboard
+        st.info("Nenhum evento encontrado no Scoreboard da NFL para o período atual.")
         return pd.DataFrame()
         
-    # Processa cada evento
+    # Processa e filtra eventos
     events_data = [get_event_data(e) for e in events_list]
-    
     events_data = [item for item in events_data if item is not None]
-
+        
     if not events_data:
         st.warning("Não foi possível extrair dados válidos dos eventos após o processamento.")
         return pd.DataFrame()
@@ -142,10 +157,25 @@ def load_data(api_url=API_URL):
 # --- 3. LAYOUT DO DASHBOARD STREAMLIT ---
 
 def main():
-    st.title("🏈 Dashboard NFL - Eventos da API")
+    
+    # Busca Metadados (dados estáticos)
+    league_name, current_season = get_league_metadata()
+    
+    st.title(f"🏈 Dashboard {league_name} - Placares Atuais")
     st.markdown("---")
-
-    # Chama a função load_data, que agora busca a API
+    
+    # Barra Lateral com Metadados
+    st.sidebar.markdown("### Controles")
+    st.sidebar.markdown(f"**Liga:** {league_name}")
+    st.sidebar.markdown(f"**Temporada:** {current_season}")
+    st.sidebar.markdown("---")
+    
+    if st.sidebar.button("Recarregar Dados Agora"):
+        # Limpa o cache de dados dinâmicos (Scoreboard) para forçar a busca
+        load_data.clear() 
+        st.experimental_rerun()
+        
+    # Busca dados do Scoreboard
     df_events = load_data()
 
     if df_events.empty:
@@ -171,13 +201,13 @@ def main():
 
     # --- TABELAS DETALHADAS ---
     
-    # 1. Jogos em Andamento
-    st.header("🔴 Jogos Atuais (Em Andamento)")
+    # 1. Jogos em Andamento (Ao Vivo)
+    st.header("🔴 Jogos Ao Vivo")
     df_in_progress = df_events[df_events['Status'] == 'Em Andamento'].sort_values(by='Detalhe Status', ascending=False)
     
     if not df_in_progress.empty:
         st.dataframe(
-            df_in_progress[['Jogo', 'Data', 'Hora', 'Detalhe Status', 'Casa', 'Score Casa', 'Visitante', 'Score Visitante']],
+            df_in_progress[['Jogo', 'Detalhe Status', 'Casa', 'Score Casa', 'Visitante', 'Score Visitante']],
             hide_index=True,
             use_container_width=True
         )
@@ -185,23 +215,8 @@ def main():
         st.info("Nenhum jogo em andamento no momento.")
 
 
-    # 2. Próximos Jogos Agendados
-    st.header("📅 Próximos Jogos Agendados")
-    df_scheduled = df_events[df_events['Status'] == 'Agendado'].sort_values(by=['Data', 'Hora'])
-    
-    if not df_scheduled.empty:
-        st.dataframe(
-            df_scheduled[['Jogo', 'Data', 'Hora', 'Casa', 'Visitante']],
-            hide_index=True,
-            use_container_width=True
-        )
-    else:
-        st.info("Nenhum jogo agendado.")
-        
-    st.markdown("---")
-
-    # 3. Resultados Recentes (Finalizados)
-    st.header("✅ Resultados (Finalizados)")
+    # 2. Resultados Recentes (Finalizados)
+    st.header("✅ Resultados Finais")
     df_finalized = df_events[df_events['Status'].str.startswith('Finalizado', na=False)].sort_values(by='Data', ascending=False)
     
     if not df_finalized.empty:
@@ -215,6 +230,6 @@ def main():
     else:
         st.info("Nenhum resultado finalizado encontrado.")
 
-
-if __name__ == '__main__':
-    main()
+    # 3. Próximos Jogos Agendados
+    st.header("📅 Próximos Jogos")
+    df_scheduled =
