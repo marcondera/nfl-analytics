@@ -62,12 +62,14 @@ def get_event_data(event):
         # Extração do Status Principal
         status_type = comp.get('status', {}).get('type', {})
         status_en = status_type.get('description', '')
+        short_detail = status_type.get('shortDetail', '') # NOVO: Pegando o shortDetail
         
-        # --- FIX DEFINITIVO DO STATUS: Se contiver "final", é finalizado! ---
-        status_en_lower = status_en.lower()
+        # --- FIX DEFINITIVO DO STATUS: Prioridade para 'Final' em qualquer campo relevante! ---
+        status_check_text = status_en + " " + short_detail + " " + status_type.get('detail', '')
+        status_check_text_lower = status_check_text.lower()
 
-        if 'final' in status_en_lower:
-            if 'ot' in status_en_lower:
+        if 'final' in status_check_text_lower:
+            if 'ot' in status_check_text_lower or 'overtime' in status_check_text_lower:
                 status_pt = 'Finalizado (OT)'
             else:
                 status_pt = 'Finalizado'
@@ -76,7 +78,7 @@ def get_event_data(event):
         elif status_type.get('state') == 'pre':
             status_pt = 'Agendado'
         else:
-            # Fallback para outros status não reconhecidos (Ex: Postponed)
+            # Fallback para outros status não reconhecidos
             status_pt = status_en 
         # --- FIM FIX DEFINITIVO DO STATUS ---
 
@@ -251,8 +253,10 @@ def plot_win_loss_evolution(df_evo, selected_teams):
         st.info("Nenhum time selecionado ou nenhum dado disponível.")
         return
     
+    # Cria a figura e o eixo do Matplotlib
     fig, ax = plt.subplots(figsize=(10, 6))
     
+    # Itera sobre os times selecionados para plotar as linhas
     for team in selected_teams:
         team_data = df_plot[df_plot['Time'] == team]
         ax.plot(
@@ -263,8 +267,10 @@ def plot_win_loss_evolution(df_evo, selected_teams):
             linestyle='-'
         )
 
+    # Linha de base para 0
     ax.axhline(0, color='gray', linestyle='--') 
     
+    # Configuração do gráfico
     ax.set_title('Evolução do Saldo W-L (Vitórias - Derrotas)', fontsize=14)
     ax.set_xlabel('Jogos Disputados', fontsize=12)
     ax.set_ylabel('Saldo Acumulado (W - L)', fontsize=12)
@@ -273,8 +279,9 @@ def plot_win_loss_evolution(df_evo, selected_teams):
     
     ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
 
+    # Exibe o gráfico no Streamlit
     st.pyplot(fig)
-    plt.close(fig) 
+    plt.close(fig) # Fecha a figura para liberar memória
 
 
 # --- 5. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
@@ -325,7 +332,8 @@ def main():
     df_evo = process_for_win_loss_evolution(df_events)
     
     if df_evo.empty:
-        st.info("A API não retornou jogos **finalizados**. O gráfico aparecerá automaticamente com todos os times assim que os dados estiverem disponíveis.")
+        # Mensagem atualizada
+        st.info("A API não retornou jogos **finalizados** válidos para o cálculo. O gráfico aparecerá com todos os times assim que os dados forem carregados corretamente.")
     else:
         all_teams = sorted(df_evo['Time'].unique().tolist())
         
