@@ -43,8 +43,8 @@ def get_event_data(event):
     detail_status = "N/A" 
     home_team_abbr = "N/A"
     away_team_abbr = "N/A"
-    home_team_color = "CCCCCC" # Cor padrão Cinza Claro
-    away_team_color = "CCCCCC"
+    home_team_color = "000000" # Cor padrão Preto (melhor que cinza claro)
+    away_team_color = "000000"
     
     try:
         comp = event['competitions'][0]
@@ -126,7 +126,6 @@ def get_event_data(event):
         away_team_abbr = away_team.get('team', {}).get('abbreviation', 'FORA')
         
         # Extração das Cores
-        # Se a cor não for encontrada, retorna a cor padrão Cinza Claro (CCCCCC)
         home_team_color = home_team.get('team', {}).get('color', home_team_color)
         away_team_color = away_team.get('team', {}).get('color', away_team_color)
             
@@ -193,11 +192,11 @@ def load_data(api_url=API_URL_EVENTS_2025):
     df = pd.DataFrame(events_data)
     return df
 
-# --- 3. FUNÇÃO DE RENDERIZAÇÃO CUSTOMIZADA ---
+# --- 3. FUNÇÃO DE RENDERIZAÇÃO CUSTOMIZADA (STÁVEL) ---
 
-def display_final_results_cards(df_finalized):
+def display_final_results_styled(df_finalized):
     """
-    Renderiza os resultados finais como cards visuais no estilo 'Google NFL Games'.
+    Renderiza os resultados finais como cards usando st.container e st.columns para estabilidade.
     """
     
     for index, row in df_finalized.iterrows():
@@ -206,76 +205,77 @@ def display_final_results_cards(df_finalized):
         is_away_winner = row['Vencedor'] == row['Visitante']
         is_draw = row['Vencedor'] == 'Empate'
         
-        # Estilos do Placar (Cor e Negrito para o Vencedor)
-        home_score_style = "font-weight: bold; color: #000000;" if is_home_winner else "color: #444444;"
-        away_score_style = "font-weight: bold; color: #000000;" if is_away_winner else "color: #444444;"
-
-        # Estilo do Card Completo (Destaque sutil no fundo para o vencedor)
-        card_background = "#f0f0f0"
+        # Cor de fundo sutil para todo o card
         if is_home_winner or is_away_winner:
-            card_background = "#e6f7ff" if not is_draw else "#fff9e6" # Azul claro para vitória, amarelo claro para empate
-
+            container_color = "#f3f9f3" # Verde claro para vitória
+        elif is_draw:
+            container_color = "#fffbe6" # Amarelo claro para empate
+        else:
+            container_color = "#f7f7f7"
         
-        card_html = f"""
-        <div style="
-            border: 1px solid #d0d0d0; 
-            border-radius: 12px; 
-            padding: 15px; 
-            margin-bottom: 15px;
-            background-color: {card_background};
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        ">
-            <div style="font-size: 14px; color: #777; margin-bottom: 10px; text-align: center;">
-                {row['Data']} | Status: {row['Detalhe Status']}
-            </div>
+        # Usa um contêiner para cada jogo (o 'card')
+        with st.container(border=True):
+            st.markdown(f'<div style="background-color: {container_color}; border-radius: 8px; padding: 15px;">', unsafe_allow_html=True)
+
+            # Informação do jogo (Data/Status)
+            st.caption(f"**{row['Data']}** | {row['Detalhe Status']}")
             
-            <div style="display: flex; justify-content: space-between; align-items: center; text-align: center;">
-                
-                <div style="flex: 1; margin-right: 15px; padding: 10px; border-radius: 8px; border: 1px solid #e0e0e0; background-color: #ffffff;">
+            # Layout em Colunas: Time Visitante | VS | Time Casa
+            col_away, col_vs, col_home = st.columns([4, 1, 4])
+
+            # --- Coluna Time Visitante ---
+            with col_away:
+                away_score_weight = "bold" if is_away_winner else "normal"
+                away_score_color = "#000000" if is_away_winner else "#666666"
+
+                st.markdown(
+                    f"""
                     <div style="
-                        background-color: #{row['Away Color']};
+                        background-color: #{row['Away Color']}; 
                         color: white; 
-                        padding: 6px; 
-                        border-radius: 4px;
-                        font-size: 16px;
+                        padding: 8px; 
+                        border-radius: 6px; 
+                        text-align: center; 
+                        font-size: 18px; 
                         font-weight: bold;
-                        margin-bottom: 8px;
                     ">
                         {row['Visitante']}
                     </div>
-                    <div style="font-size: 14px; color: #666; margin-bottom: 4px;">Visitante</div>
-                    <div style="{away_score_style} font-size: 32px;">
+                    <div style="text-align: center; margin-top: 10px; font-size: 32px; font-weight: {away_score_weight}; color: {away_score_color};">
                         {row['Score Visitante']}
                     </div>
-                </div>
+                    """, unsafe_allow_html=True
+                )
 
-                <div style="font-size: 20px; color: #999; font-weight: bold; margin: 0 10px;">
-                    VS
-                </div>
+            # --- Coluna Central (VS) ---
+            with col_vs:
+                st.markdown('<div style="font-size: 18px; text-align: center; margin-top: 30px; color: #999;">VS</div>', unsafe_allow_html=True)
 
-                <div style="flex: 1; margin-left: 15px; padding: 10px; border-radius: 8px; border: 1px solid #e0e0e0; background-color: #ffffff;">
+            # --- Coluna Time Casa ---
+            with col_home:
+                home_score_weight = "bold" if is_home_winner else "normal"
+                home_score_color = "#000000" if is_home_winner else "#666666"
+
+                st.markdown(
+                    f"""
                     <div style="
-                        background-color: #{row['Home Color']};
+                        background-color: #{row['Home Color']}; 
                         color: white; 
-                        padding: 6px; 
-                        border-radius: 4px;
-                        font-size: 16px;
+                        padding: 8px; 
+                        border-radius: 6px; 
+                        text-align: center; 
+                        font-size: 18px; 
                         font-weight: bold;
-                        margin-bottom: 8px;
                     ">
                         {row['Casa']}
                     </div>
-                    <div style="font-size: 14px; color: #666; margin-bottom: 4px;">Casa</div>
-                    <div style="{home_score_style} font-size: 32px;">
+                    <div style="text-align: center; margin-top: 10px; font-size: 32px; font-weight: {home_score_weight}; color: {home_score_color};">
                         {row['Score Casa']}
                     </div>
-                </div>
-            </div>
-        </div>
-        """
-        st.markdown(card_html, unsafe_allow_html=True)
-        # Adiciona um pequeno separador
-        # st.markdown("---") # Removido para ter uma lista mais fluida de cards
+                    """, unsafe_allow_html=True
+                )
+            
+            st.markdown('</div>', unsafe_allow_html=True) # Fecha o div de background
         
 # --- 4. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
 
@@ -345,7 +345,7 @@ def main():
     
     if not df_finalized.empty:
         # Chama a função que renderiza os cards visuais
-        display_final_results_cards(df_finalized)
+        display_final_results_styled(df_finalized)
     else:
         st.info("Nenhum resultado finalizado encontrado.")
 
