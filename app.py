@@ -48,6 +48,7 @@ def get_event_data(event):
     try:
         comp = event['competitions'][0]
     except (KeyError, IndexError):
+        # Retorna None se o evento não tiver a competição primária
         return None
 
     # Mapeamento e Tradução do Status
@@ -73,26 +74,27 @@ def get_event_data(event):
         data_formatada = "N/A"
         hora_formatada = "N/A"
 
-    # --- CORREÇÃO DE ROBUSTEZ PARA O ATTRIBUTEERROR AQUI ---
+    # --- CORREÇÃO FINAL PARA O ATTRIBUTEERROR ('NoneType' no home_team) ---
     competitors = comp.get('competitors', [])
     
-    # 1. Tenta buscar o time pelo marcador 'homeAway'. O fallback é None.
-    home_team = next((c for c in competitors if c.get('homeAway') == 'home'), None)
-    away_team = next((c for c in competitors if c.get('homeAway') == 'away'), None)
+    # 1. Tenta encontrar a equipe pela chave 'homeAway'. Se não encontrar, o default é um dicionário vazio {}.
+    # Isso garante que a variável home_team NUNCA será None.
+    home_team = next(
+        (c for c in competitors if isinstance(c, dict) and c.get('homeAway') == 'home'), 
+        {}
+    )
+    away_team = next(
+        (c for c in competitors if isinstance(c, dict) and c.get('homeAway') == 'away'), 
+        {}
+    )
 
-    # 2. Se a busca falhar (home_team/away_team for None) E a lista de competidores tiver itens, 
-    # usa o primeiro e o segundo como fallback (assumindo a ordem)
-    if home_team is None and competitors:
+    # 2. Se a busca por 'homeAway' falhou (resultando em {}) e a lista tem itens, usa o fallback posicional.
+    if not home_team and len(competitors) > 0 and isinstance(competitors[0], dict):
         home_team = competitors[0]
-    if away_team is None and len(competitors) > 1:
+    if not away_team and len(competitors) > 1 and isinstance(competitors[1], dict):
         away_team = competitors[1]
         
-    # 3. ÚLTIMA LINHA DE DEFESA: Garante que as variáveis são dicionários (ou vazios) antes de usar .get()
-    # Isso resolve o AttributeError: 'NoneType' object has no attribute 'get'
-    home_team = home_team if isinstance(home_team, dict) else {}
-    away_team = away_team if isinstance(away_team, dict) else {}
-
-    # Extração de Scores (seguro agora)
+    # Extração de Scores (agora seguro, pois home_team é garantido ser um dict)
     home_score = home_team.get('score', {}).get('displayValue', '0')
     away_score = away_team.get('score', {}).get('displayValue', '0')
     
@@ -180,7 +182,7 @@ def main():
     if st.sidebar.button("Recarregar Dados Agora"):
         # Limpa o cache de dados dinâmicos para forçar a busca
         load_data.clear() 
-        st.rerun() # Função Streamlit correta
+        st.rerun() 
         
     # Busca dados do Scoreboard
     df_events = load_data()
