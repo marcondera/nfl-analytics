@@ -3,7 +3,7 @@ import pandas as pd
 import json
 from datetime import datetime
 import requests 
-from dateutil.parser import isoparse # <-- Agora esta importação funcionará!
+from dateutil.parser import isoparse # Importação garantida pelo requirements.txt
 
 # Configuração da página
 st.set_page_config(
@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 1. CONFIGURAÇÃO DA API ---
+# --- 1. CONFIGURAÇÃO DA API (LINK ESTÁVEL) ---
 API_URL_EVENTS_2025 = "https://partners.api.espn.com/v2/sports/football/nfl/events?dates=2025"
 
 
@@ -25,14 +25,35 @@ def get_league_metadata():
 
 def get_event_data(event):
     """
-    Extrai e formata os dados principais de um único evento.
-    Garante que o código não quebre e que a data seja formatada corretamente.
+    Extrai e formata os dados principais de um único evento de forma ultra-robusta.
     """
     
-    # ULTIMATE FAIL-SAFE
+    # Valores de segurança (default)
+    data_formatada = "N/A"
+    hora_formatada = "N/A"
+    status_pt = "N/A"
+    winner_team = "A definir"
+    
+    # 1. Extração da data e Detalhe Status (Primeiro ponto de falha)
     try:
         comp = event['competitions'][0]
+        date_iso = comp.get('date')
         
+        # Tenta extrair e formatar a data/hora (CORREÇÃO DE N/A)
+        if date_iso:
+            try:
+                # isoparse é a ferramenta ideal para strings ISO 8601 como '2025-10-12T20:05Z'.
+                dt_utc = isoparse(date_iso)
+                
+                # Converte para BRT (UTC-3)
+                dt_brt = dt_utc - pd.Timedelta(hours=3)
+
+                data_formatada = dt_brt.strftime('%d/%m/%Y')
+                hora_formatada = dt_brt.strftime('%H:%M') + ' BRT'
+            except Exception:
+                pass # Mantém N/A se a formatação falhar
+        
+        # Extração do Status Principal e Detalhe Status (CORREÇÃO DE N/A)
         status_type = comp.get('status', {}).get('type', {})
         status_en = status_type.get('description')
         
@@ -44,27 +65,11 @@ def get_event_data(event):
         }
         status_pt = status_map.get(status_en, status_en)
         
-        # --- CORREÇÃO FINAL DA DATA/HORA: USANDO ISOPARSE (ROBUSTO) ---
-        date_iso = comp['date']
-        data_formatada = "N/A"
-        hora_formatada = "N/A"
-        
-        try:
-            # isoparse é a ferramenta ideal para strings ISO 8601 como '2025-10-12T20:05Z'.
-            dt_utc = isoparse(date_iso)
-            
-            # Converte para BRT (UTC-3) usando pd.Timedelta.
-            dt_brt = dt_utc - pd.Timedelta(hours=3)
-
-            data_formatada = dt_brt.strftime('%d/%m/%Y')
-            hora_formatada = dt_brt.strftime('%H:%M') + ' BRT'
-        except Exception:
-            # Permite que data_formatada e hora_formatada permaneçam "N/A" se houver erro
-            pass 
-        # --- FIM DA CORREÇÃO DE DATA/HORA ---
+        # Detalhe Status
+        detail_status = comp.get('status', {}).get('detail', 'N/A')
 
 
-        # --- EXTRAÇÃO ROBUSTA DE COMPETIDORES ---
+        # 2. Extração dos times e scores (Segundo ponto de falha - AttributeError)
         competitors = comp.get('competitors', [])
         home_team = {} 
         away_team = {} 
@@ -94,7 +99,6 @@ def get_event_data(event):
         away_display_name = away_team.get('team', {}).get('displayName', 'Time Visitante')
             
         # Determinação do Vencedor
-        winner_team = "A definir"
         if status_pt.startswith('Finalizado'):
             try:
                 if home_score.isdigit() and away_score.isdigit():
@@ -120,12 +124,11 @@ def get_event_data(event):
             'Visitante': away_display_name,
             'Score Visitante': away_score,
             'Vencedor': winner_team,
-            # Detalhe Status: Extração robusta
-            'Detalhe Status': comp.get('status', {}).get('detail', 'N/A') 
+            'Detalhe Status': detail_status
         }
         
     except Exception as e:
-        # Linha de ERRO
+        # Se QUALQUER coisa acima falhar (estrutura inesperada), cai aqui.
         return {
             'Jogo': 'Erro de Estrutura de Dados',
             'Data': 'N/A',
@@ -237,7 +240,7 @@ def main():
     df_finalized = df_events[df_events['Status'].str.startswith('Finalizado', na=False)].sort_values(by='Data', ascending=False)
     
     if not df_finalized.empty:
-        results_df = df_finalized[['Data', 'Jogo', 'Vencedor', 'Score Casa', 'Score Visitante', 'Detalhe Status']].copy()
+        results_df = df_finalized[['Data', 'Hora', 'Jogo', 'Vencedor', 'Score Casa', 'Score Visitante', 'Detalhe Status']].copy()
         
         st.dataframe(
             results_df,
