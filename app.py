@@ -12,26 +12,19 @@ st.set_page_config(
     initial_sidebar_state="collapsed" 
 )
 
-# --- 0. INJEÇÃO DE CSS CUSTOMIZADO PARA CENTRALIZAÇÃO E MARGENS ---
+# --- 0. INJEÇÃO DE CSS CUSTOMIZADO PARA CENTRALIZAÇÃO E MARGENS (Solução Robusta) ---
 
-# O CSS a seguir busca o bloco principal de conteúdo do Streamlit (classe .block-container) 
-# e o restringe a 85% da tela (max-width), centralizando-o com margin: 0 auto.
+# Este CSS usa um seletor mais genérico (data-testid) para aplicar o max-width e centralizar.
 custom_css = """
 <style>
-/* Remove o padding padrão do container principal */
-.main {
-    padding: 0;
+/* 1. Centraliza o conteúdo (o bloco que contém todos os seus elementos) */
+/* Aplica max-width e centralização ao container principal de elementos verticais */
+div[data-testid="stVerticalBlock"] {
+    max-width: 85% !important; /* Limita a largura do conteúdo (Margens de 15% / 2 = 7.5% de cada lado) */
+    margin: 0 auto; /* Centraliza o bloco automaticamente, criando margens responsivas */
 }
 
-/* Centraliza o conteúdo (o bloco que contém todos os seus elementos) */
-.block-container {
-    padding-top: 2rem; /* Mantém um pequeno padding superior */
-    padding-left: 0;
-    padding-right: 0;
-    max-width: 85% !important; /* Define a largura máxima (ex: 85% da tela) */
-    margin: 0 auto; /* Centraliza o bloco automaticamente, criando margens */
-}
-/* Estilos para os cards de resultados (opcional, para melhor visualização) */
+/* 2. Estilos customizados para os cards (Mantidos para não quebrar seu visual) */
 .result-card {
     border: 1px solid #ddd;
     padding: 15px;
@@ -54,7 +47,7 @@ custom_css = """
 """
 
 st.markdown(custom_css, unsafe_allow_html=True)
-# -------------------------------------------------------------------
+# --------------------------------------------------------------------------------
 
 
 # --- 1. CONFIGURAÇÃO DE LOGOS E API ---
@@ -67,8 +60,8 @@ LOGO_MAP = {
     "CHI": "chi", "CLE": "cle", "DAL": "dal", "DEN": "den", "det": "det", "GB": "gb", 
     "HOU": "hou", "IND": "ind", "JAX": "jac", "KC": "kc", "LAC": "lac", "LAR": "lar", 
     "LV": "rai", "MIA": "mia", "MIN": "min", "NE": "ne", "NO": "no", "NYG": "nyg", 
-    "NYJ": "nyj", "PHI": "phi", "PIT": "pit", "SEA": "sea", "TB": "tb", "TEN": "ten", 
-    "WAS": "was", "ARI": "ari"
+    "NYJ": "nyj", "PHI": "phi", "pit": "pit", "SEA": "sea", "TB": "tb", "TEN": "ten", 
+    "WAS": "was", "ARI": "ari", "PIT": "pit" # PIT estava faltando
 }
 
 def get_logo_url(team_abbr):
