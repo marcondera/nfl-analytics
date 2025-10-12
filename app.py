@@ -7,7 +7,7 @@ from dateutil.parser import isoparse
 
 # Configuração da página
 st.set_page_config(
-    page_title="Marcondes NFL Dashboard",
+    page_title="NFL Dashboard",
     layout="wide",
     initial_sidebar_state="collapsed" 
 )
@@ -388,7 +388,7 @@ def main():
         </style>
     """, unsafe_allow_html=True)
     
-    st.title("🏈 Resultados da NFL - Marcondes v1")
+    st.title("🏈 Resultados da NFL")
     
     df_events = load_data() 
 
