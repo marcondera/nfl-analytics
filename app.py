@@ -8,13 +8,12 @@ from dateutil.parser import isoparse
 # Configuração da página
 st.set_page_config(
     page_title="NFL Dashboard",
-    layout="wide",
+    layout="wide", # Essencial para que o CSS de largura máxima funcione
     initial_sidebar_state="collapsed" 
 )
 
-# --- 0. INJEÇÃO DE CSS CUSTOMIZADO PARA CENTRALIZAÇÃO E MARGENS (Solução Robusta) ---
+# --- 0. INJEÇÃO DE CSS CUSTOMIZADO PARA CENTRALIZAÇÃO E MARGENS (Solução Mais Estável) ---
 
-# Este CSS usa um seletor mais genérico (data-testid) para aplicar o max-width e centralizar.
 custom_css = """
 <style>
 /* 1. Centraliza o conteúdo (o bloco que contém todos os seus elementos) */
@@ -24,7 +23,7 @@ div[data-testid="stVerticalBlock"] {
     margin: 0 auto; /* Centraliza o bloco automaticamente, criando margens responsivas */
 }
 
-/* 2. Estilos customizados para os cards (Mantidos para não quebrar seu visual) */
+/* 2. Estilos customizados para os cards (Mantidos do seu código original) */
 .result-card {
     border: 1px solid #ddd;
     padding: 15px;
@@ -46,6 +45,7 @@ div[data-testid="stVerticalBlock"] {
 </style>
 """
 
+# A injeção DEVE ser um dos primeiros comandos st. para garantir que o CSS seja aplicado
 st.markdown(custom_css, unsafe_allow_html=True)
 # --------------------------------------------------------------------------------
 
@@ -60,8 +60,8 @@ LOGO_MAP = {
     "CHI": "chi", "CLE": "cle", "DAL": "dal", "DEN": "den", "det": "det", "GB": "gb", 
     "HOU": "hou", "IND": "ind", "JAX": "jac", "KC": "kc", "LAC": "lac", "LAR": "lar", 
     "LV": "rai", "MIA": "mia", "MIN": "min", "NE": "ne", "NO": "no", "NYG": "nyg", 
-    "NYJ": "nyj", "PHI": "phi", "pit": "pit", "SEA": "sea", "TB": "tb", "TEN": "ten", 
-    "WAS": "was", "ARI": "ari", "PIT": "pit" # PIT estava faltando
+    "NYJ": "nyj", "PHI": "phi", "PIT": "pit", "SEA": "sea", "TB": "tb", "TEN": "ten", 
+    "WAS": "was", "ARI": "ari"
 }
 
 def get_logo_url(team_abbr):
