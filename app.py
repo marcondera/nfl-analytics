@@ -34,14 +34,15 @@ def get_period_name(period):
 def get_event_data(event):
     """
     Extrai e formata os dados principais de um único evento.
-    A lógica de status robusta foi mantida.
     """
     
     data_formatada = "N/A"
     hora_formatada = "N/A"
     status_pt = "N/A"
-    winner_team = "A definir"
+    winner_team_abbr = "A definir" # Usaremos a abreviação do time para o vencedor
     detail_status = "N/A" 
+    home_team_abbr = "N/A"
+    away_team_abbr = "N/A"
     
     try:
         comp = event['competitions'][0]
@@ -63,11 +64,10 @@ def get_event_data(event):
         status = comp.get('status', {}) 
         status_type = status.get('type', {})
         
-        # --- FIX ROBUSTO DE STATUS: Análise de String Completa do Status ---
+        # --- FIX ROBUSTO DE STATUS ---
         status_text_check = str(status_type).lower() 
 
         if 'final' in status_text_check:
-            # Se a palavra 'final' está presente em QUALQUER lugar, o jogo está Finalizado.
             if 'ot' in status_text_check or 'overtime' in status_text_check:
                 status_pt = 'Finalizado (OT)'
             else:
@@ -77,12 +77,10 @@ def get_event_data(event):
         elif status_type.get('state') == 'pre':
             status_pt = 'Agendado'
         else:
-            # Fallback 
             status_pt = status_type.get('description', 'Status Desconhecido') 
         # --- FIM FIX ROBUSTO DE STATUS ---
 
         
-        # O detalhe status é o que é exibido na tabela, o mais curto possível.
         detail_status = status.get('detail', status_type.get('shortDetail', 'N/A'))
         
         # --- LÓGICA DE CONSTRUÇÃO DO DETALHE STATUS (Para jogos 'Em Andamento') ---
@@ -119,26 +117,24 @@ def get_event_data(event):
                 away_team = c2
                 
         # Extração de Scores e Nomes
-        home_score = home_team.get('score', {}).get('displayValue', '0')
-        away_score = away_team.get('score', {}).get('displayValue', '0')
+        # Garante que o score seja tratado como int para cálculos e comparações
+        home_score = int(home_team.get('score', {}).get('value', 0.0))
+        away_score = int(away_team.get('score', {}).get('value', 0.0))
         
         home_display_name = home_team.get('team', {}).get('displayName', 'Time Casa')
         away_display_name = away_team.get('team', {}).get('displayName', 'Time Visitante')
+        
+        home_team_abbr = home_team.get('team', {}).get('abbreviation', home_display_name)
+        away_team_abbr = away_team.get('team', {}).get('abbreviation', away_display_name)
             
         # Determinação do Vencedor
         if status_pt.startswith('Finalizado'):
-            try:
-                if home_score.isdigit() and away_score.isdigit():
-                    if float(home_score) > float(away_score):
-                        winner_team = home_team.get('team', {}).get('abbreviation', home_display_name)
-                    elif float(away_score) > float(home_score):
-                        winner_team = away_team.get('team', {}).get('abbreviation', away_display_name)
-                    else:
-                        winner_team = "Empate"
-                else:
-                    winner_team = "N/A"
-            except Exception:
-                winner_team = "N/A"
+            if home_score > away_score:
+                winner_team_abbr = home_team_abbr
+            elif away_score > home_score:
+                winner_team_abbr = away_team_abbr
+            else:
+                winner_team_abbr = "Empate"
 
 
         return {
@@ -146,9 +142,9 @@ def get_event_data(event):
             'Data': data_formatada,
             'Hora': hora_formatada,
             'Status': status_pt, 
-            'Casa': home_display_name,
-            'Visitante': away_display_name,
-            'Vencedor': winner_team,
+            'Casa': home_team_abbr, # Usando a abreviação
+            'Visitante': away_team_abbr, # Usando a abreviação
+            'Vencedor': winner_team_abbr,
             'Score Casa': home_score,
             'Score Visitante': away_score,
             'Detalhe Status': detail_status
@@ -160,8 +156,8 @@ def get_event_data(event):
             'Data': 'N/A',
             'Hora': 'N/A',
             'Status': 'ERRO',
-            'Casa': 'ERRO DE PROCESSAMENTO',
-            'Visitante': 'ERRO DE PROCESSAMENTO',
+            'Casa': 'ERRO',
+            'Visitante': 'ERRO',
             'Vencedor': 'N/A',
             'Score Casa': 'N/A',
             'Score Visitante': 'N/A',
@@ -197,7 +193,110 @@ def load_data(api_url=API_URL_EVENTS_2025):
     df = pd.DataFrame(events_data)
     return df
 
-# --- 3. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
+
+# --- FUNÇÕES DE ESTILIZAÇÃO DO DATAFRAME ---
+
+def highlight_winner(row):
+    """
+    Formata a linha:
+    - Coloca em negrito o nome do vencedor na coluna 'Placar Final'.
+    - Destaca a linha inteira em verde claro para vitória ou cinza para derrota.
+    """
+    styles = [''] * len(row)
+    vencedor = row['Vencedor']
+    casa = row['Casa']
+    visitante = row['Visitante']
+    placar_final = row['Placar Final']
+    
+    if vencedor == 'Empate':
+        # Sem destaque especial para empate
+        return styles
+        
+    # Coloca em negrito o nome do vencedor no placar
+    if casa == vencedor:
+        placar_estilizado = placar_final.replace(vencedor, f"**{vencedor}**")
+        row['Placar Final'] = placar_estilizado
+    elif visitante == vencedor:
+        placar_estilizado = placar_final.replace(vencedor, f"**{vencedor}**")
+        row['Placar Final'] = placar_estilizado
+        
+    return styles # Retorna o estilo da linha (pode ser ajustado para cores de fundo se desejado)
+
+
+def format_final_results(df_finalized):
+    """
+    Aplica a formatação condicional usando o Pandas Styler.
+    """
+    
+    # 1. Cria a coluna 'Placar Final' formatada (Ex: LAR 25 x 30 SEA)
+    df_finalized['Placar Final'] = (
+        df_finalized['Casa'] + ' ' + 
+        df_finalized['Score Casa'].astype(str) + 
+        ' x ' + 
+        df_finalized['Score Visitante'].astype(str) + ' ' + 
+        df_finalized['Visitante']
+    )
+    
+    # 2. Seleciona e renomeia as colunas que serão exibidas
+    df_display = df_finalized[['Data', 'Hora', 'Jogo', 'Vencedor', 'Placar Final']].copy()
+    df_display.columns = ['Data', 'Hora', 'Partida', 'Vencedor', 'Placar']
+    
+    # 3. Formatação usando Styler para negrito e cores
+    
+    # Função auxiliar que aplica negrito no Placar baseado no vencedor
+    def apply_styles(s):
+        is_winner = s['Vencedor']
+        placar = s['Placar']
+        
+        # Verifica se é um jogo com vencedor
+        if is_winner not in ['N/A', 'Empate']:
+            # Aplica negrito no time vencedor dentro da string 'Placar'
+            if s['Partida'].startswith(s['Vencedor']): # Se o jogo começar com o vencedor (Regra de Nome Completo)
+                placar = placar.replace(is_winner, f"**{is_winner}**")
+            else: # Tenta encontrar o vencedor em qualquer lugar da string do placar
+                # Como 'Placar' é 'LAR 25 x 30 SEA', podemos usar a abreviação
+                placar = placar.replace(is_winner, f"**{is_winner}**")
+
+        # Se o time do placar final for o vencedor, colore a célula do 'Vencedor'
+        styles = pd.Series('', index=s.index)
+        
+        # Aplicamos cor de fundo na célula 'Vencedor'
+        if is_winner != 'N/A' and is_winner != 'Empate':
+            styles['Vencedor'] = 'background-color: #03a9f4; color: white; font-weight: bold;' # Azul da NFL
+        elif is_winner == 'Empate':
+             styles['Vencedor'] = 'background-color: #fdd835; color: black;' # Amarelo para Empate
+             
+        # Atualiza o Placar com negrito (isso só é possível se usarmos uma função `apply` na linha)
+        s['Placar'] = placar
+        
+        return styles
+
+
+    # Usamos st.markdown e o Styler para aplicar a formatação
+    # NOTA: O Streamlit não renderiza negrito/markdown dentro de `st.dataframe` formatado por Styler.
+    # A melhor prática moderna é usar st.dataframe sem o Styler, mas usando `column_config`
+    # Infelizmente, `column_config` não suporta formatação condicional como queremos aqui.
+    
+    # Abordagem 1: Usar .apply para cor de fundo (Mais simples)
+    def style_winner_cell(val):
+        """Formata apenas a célula do Vencedor."""
+        if val not in ['N/A', 'Empate']:
+            return 'background-color: #03a9f4; color: white; font-weight: bold;'
+        elif val == 'Empate':
+            return 'background-color: #fdd835; color: black;'
+        return None
+
+    # Abordagem 2: Usar o Styler
+    styled_df = (
+        df_display.style
+        .applymap(style_winner_cell, subset=['Vencedor'])
+        .hide(axis='index')
+    )
+    
+    return styled_df
+
+
+# --- 4. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
 
 def main():
     
@@ -257,17 +356,31 @@ def main():
 
     st.markdown("---")
 
-    # 2. Resultados Recentes (Finalizados)
+    # 2. Resultados Recentes (Finalizados) - COM ESTILO VISUAL
     st.header("✅ Resultados Finais (Temporada Atual)")
-    df_finalized = df_events[df_events['Status'].str.startswith('Finalizado', na=False)].sort_values(by='Data', ascending=False)
+    df_finalized = df_events[
+        df_events['Status'].str.startswith('Finalizado', na=False)
+    ].sort_values(by='Data', ascending=False)
     
     if not df_finalized.empty:
-        results_df = df_finalized[['Data', 'Hora', 'Jogo', 'Vencedor', 'Score Casa', 'Score Visitante', 'Detalhe Status']].copy()
+        # Aplica a formatação visual e gera o Styler Object
+        styled_final_results = format_final_results(df_finalized)
         
+        # Exibe o dataframe estilizado
         st.dataframe(
-            results_df,
-            hide_index=True,
-            use_container_width=True
+            styled_final_results,
+            use_container_width=True,
+            column_config={
+                "Vencedor": st.column_config.Column(
+                    "Vencedor",
+                    help="Time que venceu a partida",
+                    width="small"
+                ),
+                "Placar": st.column_config.Column(
+                    "Placar Final",
+                    help="Score da Partida (Casa x Visitante)"
+                )
+            }
         )
     else:
         st.info("Nenhum resultado finalizado encontrado.")
