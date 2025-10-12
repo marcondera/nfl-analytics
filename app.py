@@ -34,7 +34,7 @@ def get_period_name(period):
 
 def get_event_data(event):
     """
-    Extrai e formatados dados principais de um único evento. Mantive a lógica robusta de detecção de 'Final'.
+    Extrai e formatados dados principais de um único evento. Mantém a lógica robusta de detecção de 'Final'.
     """
     
     data_formatada = "N/A"
@@ -202,10 +202,11 @@ def load_data(api_url=API_URL_EVENTS_2025):
 
 def process_for_win_loss_evolution(df_events):
     """
-    Calcula as vitórias e derrotas acumuladas para cada time, filtrando internamente 
-    todos os jogos cujo Status começa com 'Finalizado'.
+    Calcula as vitórias e derrotas acumuladas para cada time, filtrando todos os jogos
+    cujo Status começa com 'Finalizado' (o mesmo filtro da seção Resultados Finais).
     """
     
+    # Este filtro garante que APENAS os jogos finalizados sejam considerados para o W-L.
     df_results = df_events[
         df_events['Status'].str.startswith('Finalizado', na=False)
     ].copy()
@@ -249,7 +250,7 @@ def plot_win_loss_evolution(df_evo, selected_teams, period_label):
     df_plot = df_evo[df_evo['Time'].isin(selected_teams)]
     
     if df_plot.empty:
-        st.info("Nenhum time selecionado ou nenhum dado disponível no período.")
+        st.info("Nenhum time selecionado ou nenhum dado disponível.")
         return
     
     # Cria a figura e o eixo do Matplotlib
@@ -300,13 +301,14 @@ def main():
     if st.sidebar.button("Recarregar Dados Agora"):
         st.rerun() 
         
+    # Carrega todos os eventos
     df_events = load_data()
 
     if df_events.empty:
         st.warning("Não foi possível carregar os dados. Verifique a API.")
         return
 
-    # --- MÉTRICAS (KPIS) - USAM df_events (TODOS OS JOGOS) ---
+    # --- MÉTRICAS (KPIS) ---
     st.header("Visão Geral do Status dos Jogos")
     
     status_counts = df_events['Status'].value_counts()
@@ -329,7 +331,7 @@ def main():
     period_label = "Jogos Finalizados da Temporada"
     st.header(f"📈 Evolução do Saldo W-L ({period_label})")
     
-    # Usa o DataFrame COMPLETO (df_events), e a função interna fará o filtro para 'Finalizado'.
+    # Usa o DataFrame COMPLETO, e a função interna o filtra para 'Finalizado'.
     df_evo = process_for_win_loss_evolution(df_events)
     
     if df_evo.empty:
@@ -367,7 +369,7 @@ def main():
         st.info("Nenhum jogo em andamento no momento.")
 
 
-    # 2. Resultados Recentes (Finalizados) - A BASE DE DADOS PARA O GRÁFICO
+    # 2. Resultados Recentes (Finalizados) - O MESMO FILTRO QUE ALIMENTA O GRÁFICO
     st.header("✅ Resultados Finais (Temporada Atual)")
     df_finalized = df_events[df_events['Status'].str.startswith('Finalizado', na=False)].sort_values(by='Data', ascending=False)
     
