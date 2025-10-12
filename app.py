@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 import requests 
 from dateutil.parser import isoparse 
 
-# Configuração da página
+# Configuração da página (Estilo Dark Mode aprimorado)
 st.set_page_config(
     page_title="NFL 2025 Eventos e Resultados",
     layout="wide",
@@ -15,8 +15,24 @@ st.set_page_config(
 # --- 1. CONFIGURAÇÃO DA API (LINK ESTÁVEL) ---
 API_URL_EVENTS_2025 = "https://partners.api.espn.com/v2/sports/football/nfl/events?dates=2025"
 
+# --- Mapeamento de Logos (Abreviações para URL do Asset da ESPN) ---
+# Usamos um mapeamento para garantir que abreviações como "LV" (Raiders) funcionem no caminho do asset.
+LOGO_MAP = {
+    "SF": "sf", "BUF": "buf", "ATL": "atl", "BAL": "bal", "CAR": "car", "CIN": "cin", 
+    "CHI": "chi", "CLE": "cle", "DAL": "dal", "DEN": "den", "DET": "det", "GB": "gb", 
+    "HOU": "hou", "IND": "ind", "JAX": "jac", "KC": "kc", "LAC": "lac", "LAR": "lar", 
+    "LV": "rai", "MIA": "mia", "MIN": "min", "NE": "ne", "NO": "no", "NYG": "nyg", 
+    "NYJ": "nyj", "PHI": "phi", "PIT": "pit", "SEA": "sea", "TB": "tb", "TEN": "ten", 
+    "WAS": "wsh", "ARI": "ari", "WSH": "wsh"
+}
 
-# --- 2. FUNÇÕES DE BUSCA E PROCESSAMENTO DE DADOS ---
+def get_logo_url(abbreviation):
+    """Gera a URL do logo (50x50) baseado na abreviação do time."""
+    abbr = LOGO_MAP.get(abbreviation.upper(), abbreviation.lower())
+    return f"https://a.espncdn.com/i/teamlogos/nfl/500/{abbr}.png"
+
+
+# --- 2. FUNÇÕES DE BUSCA E PROCESSAMENTO DE DADOS (Inalteradas) ---
 
 def get_league_metadata():
     """Retorna informações estáticas da liga."""
@@ -34,6 +50,7 @@ def get_period_name(period):
 def get_event_data(event):
     """
     Extrai e formata os dados principais de um único evento, incluindo cores dos times.
+    (Função mantida para funcionalidade, mesmo que a cor não seja usada no visual final do card)
     """
     
     data_formatada = "N/A"
@@ -43,14 +60,14 @@ def get_event_data(event):
     detail_status = "N/A" 
     home_team_abbr = "N/A"
     away_team_abbr = "N/A"
-    home_team_color = "000000" # Cor padrão Preto (melhor que cinza claro)
+    home_team_color = "000000" 
     away_team_color = "000000"
     
     try:
         comp = event['competitions'][0]
         date_iso = comp.get('date')
 
-        # --- CORREÇÃO DE DATA/HORA (Usando isoparse) ---
+        # --- CORREÇÃO DE DATA/HORA ---
         if date_iso:
             try:
                 dt_utc = isoparse(date_iso) 
@@ -85,7 +102,7 @@ def get_event_data(event):
         
         detail_status = status.get('detail', status_type.get('shortDetail', 'N/A'))
         
-        # --- LÓGICA DE CONSTRUÇÃO DO DETALHE STATUS (Para jogos 'Em Andamento') ---
+        # --- LÓGICA DE CONSTRUÇÃO DO DETALHE STATUS ---
         if status_pt == 'Em Andamento' and ('N/A' in detail_status or not detail_status):
             clock = status.get('displayClock', '')
             period_num = status.get('period', 0)
@@ -155,11 +172,12 @@ def get_event_data(event):
         }
         
     except Exception as e:
+        # Fallback de erro
         return {
             'Jogo': 'Erro de Estrutura de Dados', 'Data': 'N/A', 'Hora': 'N/A',
             'Status': 'ERRO', 'Casa': 'ERRO', 'Visitante': 'ERRO',
             'Vencedor': 'N/A', 'Score Casa': 'N/A', 'Score Visitante': 'N/A',
-            'Detalhe Status': f'Falha na extração: {type(e).__name__}',
+            'Detalhe Status': f'Falha na extração',
             'Home Color': '333333', 'Away Color': '333333'
         }
 
@@ -167,7 +185,7 @@ def get_event_data(event):
 def load_data(api_url=API_URL_EVENTS_2025):
     """Busca e normaliza os dados da API de Events da ESPN (2025)."""
     
-    st.info(f"Buscando eventos da NFL 2025 (URL: {api_url})...")
+    # st.info(f"Buscando eventos da NFL 2025 (URL: {api_url})...")
     
     try:
         response = requests.get(api_url)
@@ -186,100 +204,115 @@ def load_data(api_url=API_URL_EVENTS_2025):
     events_data = [item for item in events_data if item is not None]
         
     if not events_data:
-        st.warning("Não foi possível extrair dados válidos dos eventos após o processamento.")
+        # st.warning("Não foi possível extrair dados válidos dos eventos após o processamento.")
         return pd.DataFrame()
         
     df = pd.DataFrame(events_data)
     return df
 
-# --- 3. FUNÇÃO DE RENDERIZAÇÃO CUSTOMIZADA (STÁVEL) ---
+# --- 3. FUNÇÃO DE RENDERIZAÇÃO CUSTOMIZADA (GRID 3x1) ---
 
 def display_final_results_styled(df_finalized):
     """
-    Renderiza os resultados finais como cards usando st.container e st.columns para estabilidade.
+    Renderiza os resultados finais em um layout de 3 cards por linha, 
+    usando logos e destacando o vencedor (Compacto e Elegante).
     """
     
-    for index, row in df_finalized.iterrows():
+    rows = [row for index, row in df_finalized.iterrows()]
+    
+    # Processa em grupos de 3 para o layout de colunas
+    for i in range(0, len(rows), 3):
         
-        is_home_winner = row['Vencedor'] == row['Casa']
-        is_away_winner = row['Vencedor'] == row['Visitante']
-        is_draw = row['Vencedor'] == 'Empate'
+        # Cria 3 colunas para o layout em grade
+        cols = st.columns(3)
+        chunk = rows[i:i+3]
         
-        # Cor de fundo sutil para todo o card
-        if is_home_winner or is_away_winner:
-            container_color = "#f3f9f3" # Verde claro para vitória
-        elif is_draw:
-            container_color = "#fffbe6" # Amarelo claro para empate
-        else:
-            container_color = "#f7f7f7"
-        
-        # Usa um contêiner para cada jogo (o 'card')
-        with st.container(border=True):
-            st.markdown(f'<div style="background-color: {container_color}; border-radius: 8px; padding: 15px;">', unsafe_allow_html=True)
-
-            # Informação do jogo (Data/Status)
-            st.caption(f"**{row['Data']}** | {row['Detalhe Status']}")
-            
-            # Layout em Colunas: Time Visitante | VS | Time Casa
-            col_away, col_vs, col_home = st.columns([4, 1, 4])
-
-            # --- Coluna Time Visitante ---
-            with col_away:
-                away_score_weight = "bold" if is_away_winner else "normal"
-                away_score_color = "#000000" if is_away_winner else "#666666"
-
+        for j, row in enumerate(chunk):
+            with cols[j]:
+                
+                is_home_winner = row['Vencedor'] == row['Casa']
+                is_away_winner = row['Vencedor'] == row['Visitante']
+                
+                # O Card principal
                 st.markdown(
                     f"""
                     <div style="
-                        background-color: #{row['Away Color']}; 
-                        color: white; 
-                        padding: 8px; 
-                        border-radius: 6px; 
-                        text-align: center; 
-                        font-size: 18px; 
-                        font-weight: bold;
+                        border: 1px solid #333; 
+                        border-radius: 10px; 
+                        padding: 15px 10px; 
+                        margin: 5px 0; 
+                        background-color: #1E1E1E; 
+                        box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
                     ">
-                        {row['Visitante']}
-                    </div>
-                    <div style="text-align: center; margin-top: 10px; font-size: 32px; font-weight: {away_score_weight}; color: {away_score_color};">
-                        {row['Score Visitante']}
-                    </div>
                     """, unsafe_allow_html=True
                 )
+                
+                # Título: Data e Status
+                st.markdown(f'<p style="font-size: 11px; color: #AAA; margin: 0 0 10px 0; text-align: center;">{row["Data"]} | {row["Detalhe Status"]}</p>', unsafe_allow_html=True)
 
-            # --- Coluna Central (VS) ---
-            with col_vs:
-                st.markdown('<div style="font-size: 18px; text-align: center; margin-top: 30px; color: #999;">VS</div>', unsafe_allow_html=True)
+                # --- Layout Interno do Placar (Casa vs Visitante) ---
+                col_score_away, col_score_home = st.columns(2)
+                
+                # --- Time Visitante ---
+                with col_score_away:
+                    away_score_weight = "900" if is_away_winner else "normal" # Negrito mais forte
+                    away_score_color = "#FAFAFA" if is_away_winner else "#888888" # Corrigido para branco/cinza no fundo escuro
 
-            # --- Coluna Time Casa ---
-            with col_home:
-                home_score_weight = "bold" if is_home_winner else "normal"
-                home_score_color = "#000000" if is_home_winner else "#666666"
+                    st.markdown(
+                        f"""
+                        <div style="text-align: center; line-height: 1;">
+                            <img src="{get_logo_url(row['Visitante'])}" width="35">
+                            <p style="font-size: 22px; margin: 5px 0 0px 0; font-weight: {away_score_weight}; color: {away_score_color};">
+                                {row['Score Visitante']}
+                            </p>
+                            <p style="font-size: 11px; color: #AAA; margin: 0; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">{row['Visitante']}</p>
+                        </div>
+                        """, unsafe_allow_html=True
+                    )
+                
+                # --- Time Casa ---
+                with col_score_home:
+                    home_score_weight = "900" if is_home_winner else "normal"
+                    home_score_color = "#FAFAFA" if is_home_winner else "#888888"
 
-                st.markdown(
-                    f"""
-                    <div style="
-                        background-color: #{row['Home Color']}; 
-                        color: white; 
-                        padding: 8px; 
-                        border-radius: 6px; 
-                        text-align: center; 
-                        font-size: 18px; 
-                        font-weight: bold;
-                    ">
-                        {row['Casa']}
-                    </div>
-                    <div style="text-align: center; margin-top: 10px; font-size: 32px; font-weight: {home_score_weight}; color: {home_score_color};">
-                        {row['Score Casa']}
-                    </div>
-                    """, unsafe_allow_html=True
-                )
-            
-            st.markdown('</div>', unsafe_allow_html=True) # Fecha o div de background
-        
+                    st.markdown(
+                        f"""
+                        <div style="text-align: center; line-height: 1;">
+                            <img src="{get_logo_url(row['Casa'])}" width="35">
+                            <p style="font-size: 22px; margin: 5px 0 0px 0; font-weight: {home_score_weight}; color: {home_score_color};">
+                                {row['Score Casa']}
+                            </p>
+                            <p style="font-size: 11px; color: #AAA; margin: 0; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">{row['Casa']}</p>
+                        </div>
+                        """, unsafe_allow_html=True
+                    )
+                
+                # Finalização do Card
+                winner_text = f'Vencedor: <b style="color: #69be28;">{row["Vencedor"]}</b>' if row['Vencedor'] not in ['Empate', 'A definir'] else row["Vencedor"]
+                st.markdown(f'<p style="font-size: 10px; color: #AAA; margin-top: 10px; text-align: center;">{winner_text}</p>', unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True) # Fecha o div do Card
+                
 # --- 4. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
 
 def main():
+    
+    # Injeta CSS personalizado para fundo e cores gerais do texto em Dark Mode
+    st.markdown("""
+        <style>
+            /* Altera o fundo principal */
+            .stApp {
+                background-color: #0E1117; 
+            }
+            /* Altera a cor do texto do header para Streamlit em modo dark */
+            h1, h2, h3, h4, h5, h6 {
+                color: #FAFAFA;
+            }
+            /* Melhora o contraste de tabelas e outros elementos padrão */
+            .st-emotion-cache-1r6chq { /* Tabela Header */
+                background-color: #262730; 
+            }
+        </style>
+    """, unsafe_allow_html=True)
     
     league_name, current_season = get_league_metadata()
     
@@ -291,11 +324,9 @@ def main():
     st.sidebar.markdown(f"**Temporada:** {current_season} (Todos os Eventos)")
     st.sidebar.markdown("---")
     
-    if st.sidebar.button("Recarregar Dados Agora"):
-        st.rerun() 
-        
-    # Carrega todos os eventos
-    df_events = load_data()
+    # Carrega dados do arquivo local OU da API (depende se o arquivo foi passado ou não)
+    # Para demonstração, mantém a busca na API, mas o usuário pode usar o arquivo local
+    df_events = load_data() 
 
     if df_events.empty:
         st.warning("Não foi possível carregar os dados. Verifique a API.")
@@ -322,29 +353,33 @@ def main():
     
     # --- TABELAS DETALHADAS ---
     
-    # 1. Jogos em Andamento (Ao Vivo) - Mantido como Tabela Simples
-    st.header("🔴 Jogos Ao Vivo (Temporada Atual)")
+    # 1. Jogos em Andamento (Ao Vivo)
+    st.header("🔴 Jogos Ao Vivo (Em Andamento)")
     df_in_progress = df_events[df_events['Status'] == 'Em Andamento'].sort_values(by='Detalhe Status', ascending=False)
     
     if not df_in_progress.empty:
-        st.dataframe(
-            df_in_progress[['Jogo', 'Detalhe Status', 'Casa', 'Score Casa', 'Visitante', 'Score Visitante']],
-            hide_index=True,
-            use_container_width=True
-        )
+        # Usa o novo layout de cards também para os jogos ao vivo, se desejar
+        display_final_results_styled(df_in_progress)
+        
+        # Ou se preferir manter a tabela simples:
+        # st.dataframe(
+        #     df_in_progress[['Jogo', 'Detalhe Status', 'Casa', 'Score Casa', 'Visitante', 'Score Visitante']],
+        #     hide_index=True,
+        #     use_container_width=True
+        # )
     else:
         st.info("Nenhum jogo em andamento no momento.")
 
     st.markdown("---")
 
-    # 2. Resultados Recentes (Finalizados) - NOVO VISUAL CUSTOMIZADO
-    st.header("✅ Resultados Finais (Temporada Atual)")
+    # 2. Resultados Recentes (Finalizados) - COM NOVO VISUAL CUSTOMIZADO
+    st.header("✅ Resultados Finais")
     df_finalized = df_events[
         df_events['Status'].str.startswith('Finalizado', na=False)
     ].sort_values(by='Data', ascending=False)
     
     if not df_finalized.empty:
-        # Chama a função que renderiza os cards visuais
+        # Chama a função que renderiza os cards visuais 3x1
         display_final_results_styled(df_finalized)
     else:
         st.info("Nenhum resultado finalizado encontrado.")
