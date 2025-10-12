@@ -3,8 +3,7 @@ import pandas as pd
 import json
 from datetime import datetime
 import requests 
-# Removendo: from dateutil.parser import isoparse
-# Usaremos apenas a biblioteca padrão 'datetime'
+from dateutil.parser import isoparse # <-- Agora esta importação funcionará!
 
 # Configuração da página
 st.set_page_config(
@@ -13,8 +12,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 1. CONFIGURAÇÃO DA API (FOCANDO NO LINK SOLICITADO) ---
-# Endpoint estável e solicitado pelo usuário.
+# --- 1. CONFIGURAÇÃO DA API ---
 API_URL_EVENTS_2025 = "https://partners.api.espn.com/v2/sports/football/nfl/events?dates=2025"
 
 
@@ -28,14 +26,13 @@ def get_league_metadata():
 def get_event_data(event):
     """
     Extrai e formata os dados principais de um único evento.
-    Contém bloco try/except abrangente para garantir que o código NUNCA quebre.
+    Garante que o código não quebre e que a data seja formatada corretamente.
     """
     
-    # ULTIMATE FAIL-SAFE: Tenta extrair TUDO. Se falhar, retorna linha de ERRO.
+    # ULTIMATE FAIL-SAFE
     try:
         comp = event['competitions'][0]
         
-        # Mapeamento e Tradução do Status
         status_type = comp.get('status', {}).get('type', {})
         status_en = status_type.get('description')
         
@@ -47,31 +44,27 @@ def get_event_data(event):
         }
         status_pt = status_map.get(status_en, status_en)
         
-        # --- CORREÇÃO FINAL DA DATA/HORA (Usando fromisoformat e removendo 'Z') ---
+        # --- CORREÇÃO FINAL DA DATA/HORA: USANDO ISOPARSE (ROBUSTO) ---
         date_iso = comp['date']
         data_formatada = "N/A"
         hora_formatada = "N/A"
         
         try:
-            # 1. Remove o 'Z' (Zulu/UTC) para compatibilidade com fromisoformat.
-            if date_iso.endswith('Z'):
-                date_iso = date_iso[:-1]
+            # isoparse é a ferramenta ideal para strings ISO 8601 como '2025-10-12T20:05Z'.
+            dt_utc = isoparse(date_iso)
             
-            # 2. Usa fromisoformat (Python 3.7+) para análise precisa.
-            dt_utc = datetime.fromisoformat(date_iso)
-            
-            # 3. Converte para BRT (UTC-3) usando pd.Timedelta.
+            # Converte para BRT (UTC-3) usando pd.Timedelta.
             dt_brt = dt_utc - pd.Timedelta(hours=3)
 
             data_formatada = dt_brt.strftime('%d/%m/%Y')
             hora_formatada = dt_brt.strftime('%H:%M') + ' BRT'
         except Exception:
-            # Se a data ainda falhar, permanece N/A
-            pass # Permite que data_formatada e hora_formatada permaneçam "N/A"
+            # Permite que data_formatada e hora_formatada permaneçam "N/A" se houver erro
+            pass 
         # --- FIM DA CORREÇÃO DE DATA/HORA ---
 
 
-        # --- EXTRAÇÃO ROBUSTA DE COMPETIDORES (Testada e validada) ---
+        # --- EXTRAÇÃO ROBUSTA DE COMPETIDORES ---
         competitors = comp.get('competitors', [])
         home_team = {} 
         away_team = {} 
@@ -127,12 +120,12 @@ def get_event_data(event):
             'Visitante': away_display_name,
             'Score Visitante': away_score,
             'Vencedor': winner_team,
-            # EXTRAÇÃO DO DETALHE STATUS (permanece a mesma, pois o erro é na data)
+            # Detalhe Status: Extração robusta
             'Detalhe Status': comp.get('status', {}).get('detail', 'N/A') 
         }
         
     except Exception as e:
-        # Linha de ERRO para garantir que o app não quebre
+        # Linha de ERRO
         return {
             'Jogo': 'Erro de Estrutura de Dados',
             'Data': 'N/A',
@@ -164,7 +157,6 @@ def load_data(api_url=API_URL_EVENTS_2025):
         st.error("Erro ao decodificar a resposta como JSON.")
         return pd.DataFrame()
 
-    # Usando a chave 'events' conforme o JSON fornecido
     events_list = data.get('events', [])
     
     if not events_list:
