@@ -33,16 +33,18 @@ def get_period_name(period):
 
 def get_event_data(event):
     """
-    Extrai e formata os dados principais de um único evento.
+    Extrai e formata os dados principais de um único evento, incluindo cores dos times.
     """
     
     data_formatada = "N/A"
     hora_formatada = "N/A"
     status_pt = "N/A"
-    winner_team_abbr = "A definir" # Usaremos a abreviação do time para o vencedor
+    winner_team_abbr = "A definir"
     detail_status = "N/A" 
     home_team_abbr = "N/A"
     away_team_abbr = "N/A"
+    home_team_color = "CCCCCC" # Cor padrão Cinza Claro
+    away_team_color = "CCCCCC"
     
     try:
         comp = event['competitions'][0]
@@ -117,15 +119,16 @@ def get_event_data(event):
                 away_team = c2
                 
         # Extração de Scores e Nomes
-        # Garante que o score seja tratado como int para cálculos e comparações
         home_score = int(home_team.get('score', {}).get('value', 0.0))
         away_score = int(away_team.get('score', {}).get('value', 0.0))
         
-        home_display_name = home_team.get('team', {}).get('displayName', 'Time Casa')
-        away_display_name = away_team.get('team', {}).get('displayName', 'Time Visitante')
+        home_team_abbr = home_team.get('team', {}).get('abbreviation', 'CASA')
+        away_team_abbr = away_team.get('team', {}).get('abbreviation', 'FORA')
         
-        home_team_abbr = home_team.get('team', {}).get('abbreviation', home_display_name)
-        away_team_abbr = away_team.get('team', {}).get('abbreviation', away_display_name)
+        # Extração das Cores
+        # Se a cor não for encontrada, retorna a cor padrão Cinza Claro (CCCCCC)
+        home_team_color = home_team.get('team', {}).get('color', home_team_color)
+        away_team_color = away_team.get('team', {}).get('color', away_team_color)
             
         # Determinação do Vencedor
         if status_pt.startswith('Finalizado'):
@@ -142,26 +145,23 @@ def get_event_data(event):
             'Data': data_formatada,
             'Hora': hora_formatada,
             'Status': status_pt, 
-            'Casa': home_team_abbr, # Usando a abreviação
-            'Visitante': away_team_abbr, # Usando a abreviação
+            'Casa': home_team_abbr,
+            'Visitante': away_team_abbr,
             'Vencedor': winner_team_abbr,
             'Score Casa': home_score,
             'Score Visitante': away_score,
-            'Detalhe Status': detail_status
+            'Detalhe Status': detail_status,
+            'Home Color': home_team_color,
+            'Away Color': away_team_color
         }
         
     except Exception as e:
         return {
-            'Jogo': 'Erro de Estrutura de Dados',
-            'Data': 'N/A',
-            'Hora': 'N/A',
-            'Status': 'ERRO',
-            'Casa': 'ERRO',
-            'Visitante': 'ERRO',
-            'Vencedor': 'N/A',
-            'Score Casa': 'N/A',
-            'Score Visitante': 'N/A',
-            'Detalhe Status': f'Falha na extração: {type(e).__name__}'
+            'Jogo': 'Erro de Estrutura de Dados', 'Data': 'N/A', 'Hora': 'N/A',
+            'Status': 'ERRO', 'Casa': 'ERRO', 'Visitante': 'ERRO',
+            'Vencedor': 'N/A', 'Score Casa': 'N/A', 'Score Visitante': 'N/A',
+            'Detalhe Status': f'Falha na extração: {type(e).__name__}',
+            'Home Color': '333333', 'Away Color': '333333'
         }
 
 
@@ -193,109 +193,90 @@ def load_data(api_url=API_URL_EVENTS_2025):
     df = pd.DataFrame(events_data)
     return df
 
+# --- 3. FUNÇÃO DE RENDERIZAÇÃO CUSTOMIZADA ---
 
-# --- FUNÇÕES DE ESTILIZAÇÃO DO DATAFRAME ---
-
-def highlight_winner(row):
+def display_final_results_cards(df_finalized):
     """
-    Formata a linha:
-    - Coloca em negrito o nome do vencedor na coluna 'Placar Final'.
-    - Destaca a linha inteira em verde claro para vitória ou cinza para derrota.
-    """
-    styles = [''] * len(row)
-    vencedor = row['Vencedor']
-    casa = row['Casa']
-    visitante = row['Visitante']
-    placar_final = row['Placar Final']
-    
-    if vencedor == 'Empate':
-        # Sem destaque especial para empate
-        return styles
-        
-    # Coloca em negrito o nome do vencedor no placar
-    if casa == vencedor:
-        placar_estilizado = placar_final.replace(vencedor, f"**{vencedor}**")
-        row['Placar Final'] = placar_estilizado
-    elif visitante == vencedor:
-        placar_estilizado = placar_final.replace(vencedor, f"**{vencedor}**")
-        row['Placar Final'] = placar_estilizado
-        
-    return styles # Retorna o estilo da linha (pode ser ajustado para cores de fundo se desejado)
-
-
-def format_final_results(df_finalized):
-    """
-    Aplica a formatação condicional usando o Pandas Styler.
+    Renderiza os resultados finais como cards visuais no estilo 'Google NFL Games'.
     """
     
-    # 1. Cria a coluna 'Placar Final' formatada (Ex: LAR 25 x 30 SEA)
-    df_finalized['Placar Final'] = (
-        df_finalized['Casa'] + ' ' + 
-        df_finalized['Score Casa'].astype(str) + 
-        ' x ' + 
-        df_finalized['Score Visitante'].astype(str) + ' ' + 
-        df_finalized['Visitante']
-    )
-    
-    # 2. Seleciona e renomeia as colunas que serão exibidas
-    df_display = df_finalized[['Data', 'Hora', 'Jogo', 'Vencedor', 'Placar Final']].copy()
-    df_display.columns = ['Data', 'Hora', 'Partida', 'Vencedor', 'Placar']
-    
-    # 3. Formatação usando Styler para negrito e cores
-    
-    # Função auxiliar que aplica negrito no Placar baseado no vencedor
-    def apply_styles(s):
-        is_winner = s['Vencedor']
-        placar = s['Placar']
+    for index, row in df_finalized.iterrows():
         
-        # Verifica se é um jogo com vencedor
-        if is_winner not in ['N/A', 'Empate']:
-            # Aplica negrito no time vencedor dentro da string 'Placar'
-            if s['Partida'].startswith(s['Vencedor']): # Se o jogo começar com o vencedor (Regra de Nome Completo)
-                placar = placar.replace(is_winner, f"**{is_winner}**")
-            else: # Tenta encontrar o vencedor em qualquer lugar da string do placar
-                # Como 'Placar' é 'LAR 25 x 30 SEA', podemos usar a abreviação
-                placar = placar.replace(is_winner, f"**{is_winner}**")
-
-        # Se o time do placar final for o vencedor, colore a célula do 'Vencedor'
-        styles = pd.Series('', index=s.index)
+        is_home_winner = row['Vencedor'] == row['Casa']
+        is_away_winner = row['Vencedor'] == row['Visitante']
+        is_draw = row['Vencedor'] == 'Empate'
         
-        # Aplicamos cor de fundo na célula 'Vencedor'
-        if is_winner != 'N/A' and is_winner != 'Empate':
-            styles['Vencedor'] = 'background-color: #03a9f4; color: white; font-weight: bold;' # Azul da NFL
-        elif is_winner == 'Empate':
-             styles['Vencedor'] = 'background-color: #fdd835; color: black;' # Amarelo para Empate
-             
-        # Atualiza o Placar com negrito (isso só é possível se usarmos uma função `apply` na linha)
-        s['Placar'] = placar
+        # Estilos do Placar (Cor e Negrito para o Vencedor)
+        home_score_style = "font-weight: bold; color: #000000;" if is_home_winner else "color: #444444;"
+        away_score_style = "font-weight: bold; color: #000000;" if is_away_winner else "color: #444444;"
+
+        # Estilo do Card Completo (Destaque sutil no fundo para o vencedor)
+        card_background = "#f0f0f0"
+        if is_home_winner or is_away_winner:
+            card_background = "#e6f7ff" if not is_draw else "#fff9e6" # Azul claro para vitória, amarelo claro para empate
+
         
-        return styles
+        card_html = f"""
+        <div style="
+            border: 1px solid #d0d0d0; 
+            border-radius: 12px; 
+            padding: 15px; 
+            margin-bottom: 15px;
+            background-color: {card_background};
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        ">
+            <div style="font-size: 14px; color: #777; margin-bottom: 10px; text-align: center;">
+                {row['Data']} | Status: {row['Detalhe Status']}
+            </div>
+            
+            <div style="display: flex; justify-content: space-between; align-items: center; text-align: center;">
+                
+                <div style="flex: 1; margin-right: 15px; padding: 10px; border-radius: 8px; border: 1px solid #e0e0e0; background-color: #ffffff;">
+                    <div style="
+                        background-color: #{row['Away Color']};
+                        color: white; 
+                        padding: 6px; 
+                        border-radius: 4px;
+                        font-size: 16px;
+                        font-weight: bold;
+                        margin-bottom: 8px;
+                    ">
+                        {row['Visitante']}
+                    </div>
+                    <div style="font-size: 14px; color: #666; margin-bottom: 4px;">Visitante</div>
+                    <div style="{away_score_style} font-size: 32px;">
+                        {row['Score Visitante']}
+                    </div>
+                </div>
 
+                <div style="font-size: 20px; color: #999; font-weight: bold; margin: 0 10px;">
+                    VS
+                </div>
 
-    # Usamos st.markdown e o Styler para aplicar a formatação
-    # NOTA: O Streamlit não renderiza negrito/markdown dentro de `st.dataframe` formatado por Styler.
-    # A melhor prática moderna é usar st.dataframe sem o Styler, mas usando `column_config`
-    # Infelizmente, `column_config` não suporta formatação condicional como queremos aqui.
-    
-    # Abordagem 1: Usar .apply para cor de fundo (Mais simples)
-    def style_winner_cell(val):
-        """Formata apenas a célula do Vencedor."""
-        if val not in ['N/A', 'Empate']:
-            return 'background-color: #03a9f4; color: white; font-weight: bold;'
-        elif val == 'Empate':
-            return 'background-color: #fdd835; color: black;'
-        return None
-
-    # Abordagem 2: Usar o Styler
-    styled_df = (
-        df_display.style
-        .applymap(style_winner_cell, subset=['Vencedor'])
-        .hide(axis='index')
-    )
-    
-    return styled_df
-
-
+                <div style="flex: 1; margin-left: 15px; padding: 10px; border-radius: 8px; border: 1px solid #e0e0e0; background-color: #ffffff;">
+                    <div style="
+                        background-color: #{row['Home Color']};
+                        color: white; 
+                        padding: 6px; 
+                        border-radius: 4px;
+                        font-size: 16px;
+                        font-weight: bold;
+                        margin-bottom: 8px;
+                    ">
+                        {row['Casa']}
+                    </div>
+                    <div style="font-size: 14px; color: #666; margin-bottom: 4px;">Casa</div>
+                    <div style="{home_score_style} font-size: 32px;">
+                        {row['Score Casa']}
+                    </div>
+                </div>
+            </div>
+        </div>
+        """
+        st.markdown(card_html, unsafe_allow_html=True)
+        # Adiciona um pequeno separador
+        # st.markdown("---") # Removido para ter uma lista mais fluida de cards
+        
 # --- 4. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
 
 def main():
@@ -341,7 +322,7 @@ def main():
     
     # --- TABELAS DETALHADAS ---
     
-    # 1. Jogos em Andamento (Ao Vivo)
+    # 1. Jogos em Andamento (Ao Vivo) - Mantido como Tabela Simples
     st.header("🔴 Jogos Ao Vivo (Temporada Atual)")
     df_in_progress = df_events[df_events['Status'] == 'Em Andamento'].sort_values(by='Detalhe Status', ascending=False)
     
@@ -356,32 +337,15 @@ def main():
 
     st.markdown("---")
 
-    # 2. Resultados Recentes (Finalizados) - COM ESTILO VISUAL
+    # 2. Resultados Recentes (Finalizados) - NOVO VISUAL CUSTOMIZADO
     st.header("✅ Resultados Finais (Temporada Atual)")
     df_finalized = df_events[
         df_events['Status'].str.startswith('Finalizado', na=False)
     ].sort_values(by='Data', ascending=False)
     
     if not df_finalized.empty:
-        # Aplica a formatação visual e gera o Styler Object
-        styled_final_results = format_final_results(df_finalized)
-        
-        # Exibe o dataframe estilizado
-        st.dataframe(
-            styled_final_results,
-            use_container_width=True,
-            column_config={
-                "Vencedor": st.column_config.Column(
-                    "Vencedor",
-                    help="Time que venceu a partida",
-                    width="small"
-                ),
-                "Placar": st.column_config.Column(
-                    "Placar Final",
-                    help="Score da Partida (Casa x Visitante)"
-                )
-            }
-        )
+        # Chama a função que renderiza os cards visuais
+        display_final_results_cards(df_finalized)
     else:
         st.info("Nenhum resultado finalizado encontrado.")
 
