@@ -13,6 +13,7 @@ st.set_page_config(
 )
 
 # --- 1. CONFIGURAÇÃO DE LOGOS E API ---
+# Nota: Para usar o arquivo JSON local, você precisaria mudar a lógica de load_data()
 API_URL_EVENTS_2025 = "https://partners.api.espn.com/v2/sports/football/nfl/events?dates=2025"
 
 # Mapeamento para garantir que abreviações sejam traduzidas corretamente para a URL do logo
@@ -22,17 +23,17 @@ LOGO_MAP = {
     "HOU": "hou", "IND": "ind", "JAX": "jac", "KC": "kc", "LAC": "lac", "LAR": "lar", 
     "LV": "rai", "MIA": "mia", "MIN": "min", "NE": "ne", "NO": "no", "NYG": "nyg", 
     "NYJ": "nyj", "PHI": "phi", "PIT": "pit", "SEA": "sea", "TB": "tb", "TEN": "ten", 
-    "WAS": "wsh", "ARI": "ari", "WSH": "wsh"
+    "WAS": "wsh", "ARI": "ari", "ari", "WSH": "wsh"
 }
 
 def get_logo_url(abbreviation):
-    """Gera a URL do logo (50x50) baseado na abreviação do time."""
+    """Gera a URL do logo (500x500) para melhor resolução, ajustada via HTML."""
     abbr = LOGO_MAP.get(abbreviation.upper(), abbreviation.lower())
     # URL de assets da ESPN.
     return f"https://a.espncdn.com/i/teamlogos/nfl/500/{abbr}.png"
 
 
-# --- 2. FUNÇÕES DE BUSCA E PROCESSAMENTO DE DADOS (Mantidas) ---
+# --- 2. FUNÇÕES DE BUSCA E PROCESSAMENTO DE DADOS (Corrigido para usar o nome do time no placar) ---
 
 def get_league_metadata():
     """Retorna informações estáticas da liga."""
@@ -49,7 +50,6 @@ def get_period_name(period):
 
 def get_event_data(event):
     """Extrai e formata os dados principais de um único evento."""
-    # (Conteúdo da função get_event_data é mantido inalterado da versão anterior)
     
     data_formatada = "N/A"
     status_pt = "N/A"
@@ -87,10 +87,25 @@ def get_event_data(event):
         
         detail_status = status.get('detail', status_type.get('shortDetail', 'N/A'))
         
-        if status_pt == 'Em Andamento' and ('N/A' in detail_status or not detail_status):
+        if status_pt == 'Em Andamento':
+            # Detalhes de Em Andamento
             clock = status.get('displayClock', '')
             period_name = get_period_name(status.get('period', 0))
-            detail_status = f"{clock} - {period_name}" if clock and period_name else status_type.get('shortDetail', 'Em Andamento')
+            if clock and period_name:
+                detail_status = f"{clock} - {period_name}"
+            elif 'shortDetail' in status_type:
+                detail_status = status_type.get('shortDetail')
+            
+        elif status_pt == 'Finalizado' or status_pt == 'Finalizado (OT)':
+            # Detalhes de Finalizado
+            detail_status = status_type.get('shortDetail', 'Fim')
+            
+        elif status_pt == 'Agendado':
+            # Detalhes de Agendado (Hora)
+            dt_utc = isoparse(date_iso) 
+            dt_brt = dt_utc - pd.Timedelta(hours=3)
+            detail_status = dt_brt.strftime('%H:%M')
+            
         
         competitors = comp.get('competitors', [])
         home_team = {} 
@@ -100,9 +115,6 @@ def get_event_data(event):
             c1 = competitors[0]
             c2 = competitors[1]
             
-            c1 = c1 if isinstance(c1, dict) else {}
-            c2 = c2 if isinstance(c2, dict) else {}
-
             if c1.get('homeAway') == 'home':
                 home_team, away_team = c1, c2
             elif c2.get('homeAway') == 'home':
@@ -138,6 +150,7 @@ def get_event_data(event):
         }
         
     except Exception:
+        # Fallback de erro
         return {
             'Jogo': 'Erro de Estrutura de Dados', 'Data': 'N/A',
             'Status': 'ERRO', 'Casa': 'ERRO', 'Visitante': 'ERRO',
@@ -149,19 +162,26 @@ def get_event_data(event):
 def load_data(api_url=API_URL_EVENTS_2025):
     """Busca e normaliza os dados da API de Events da ESPN (2025)."""
     
-    st.info(f"Buscando eventos da NFL 2025 (URL: {api_url})...")
-    
+    # 1. Tenta carregar do arquivo local para demonstração estável
     try:
-        response = requests.get(api_url)
-        response.raise_for_status() 
-        data = response.json()
+        # Busca o arquivo 'events (1).json'
+        # Usamos o `fullContent` para acessar o JSON que você carregou
+        data = json.loads(st.session_state.uploaded_file_data['events (1).json'])
+        # st.info("Dados carregados do arquivo 'events (1).json' (Local).")
         
-    except requests.exceptions.RequestException:
-        st.error(f"Erro ao buscar dados da API. Verifique a URL e autenticação.")
-        return pd.DataFrame()
-    except json.JSONDecodeError:
-        st.error("Erro ao decodificar a resposta como JSON.")
-        return pd.DataFrame()
+    except (FileNotFoundError, KeyError, json.JSONDecodeError):
+        # 2. Se falhar, busca na API (mantido para o seu código principal)
+        try:
+            # st.info(f"Arquivo local não encontrado. Buscando na API (URL: {api_url})...")
+            response = requests.get(api_url)
+            response.raise_for_status() 
+            data = response.json()
+        except requests.exceptions.RequestException:
+            st.error(f"Erro ao buscar dados da API. Verifique a URL e autenticação.")
+            return pd.DataFrame()
+        except json.JSONDecodeError:
+            st.error("Erro ao decodificar a resposta como JSON.")
+            return pd.DataFrame()
 
     events_list = data.get('events', [])
     events_data = [get_event_data(e) for e in events_list]
@@ -173,12 +193,12 @@ def load_data(api_url=API_URL_EVENTS_2025):
     df = pd.DataFrame(events_data)
     return df
 
-# --- 3. FUNÇÃO DE RENDERIZAÇÃO CUSTOMIZADA (GRID 3x1) ---
+# --- 3. FUNÇÃO DE RENDERIZAÇÃO CUSTOMIZADA (GRID 3x1 - Design Aprimorado) ---
 
 def display_final_results_styled(df_finalized):
     """
     Renderiza os resultados finais em um layout de 3 cards por linha, 
-    usando logos e destacando o vencedor (Compacto e Elegante).
+    usando logos e destacando o placar vencedor.
     """
     
     rows = [row for index, row in df_finalized.iterrows()]
@@ -190,35 +210,52 @@ def display_final_results_styled(df_finalized):
             .nfl-card {
                 background-color: #282A36; /* Fundo do Card (Dark Gray) */
                 border-radius: 10px; 
-                padding: 15px; 
+                padding: 10px 8px; /* Reduzido o padding */
                 margin: 5px 0; 
-                box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-                color: #FAFAFA; /* Cor principal do texto */
+                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                color: #FAFAFA;
+                display: flex;
+                flex-direction: column;
             }
-            .nfl-card p {
-                margin: 0;
-            }
-            .nfl-date {
+            .nfl-date-status {
                 font-size: 11px;
-                color: #B0B0B0; /* Cor secundária (Data/Status) */
+                color: #B0B0B0; 
                 text-align: center;
-                margin-bottom: 10px !important;
+                margin-bottom: 5px !important;
+            }
+            .nfl-team-block {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 5px;
+            }
+            .nfl-team-info {
+                display: flex;
+                align-items: center;
             }
             .nfl-score {
-                font-size: 28px;
+                font-size: 24px;
                 font-weight: 500;
-                color: #FAFAFA; /* Placar normal */
+                color: #888888; /* Perdedor em cinza */
             }
             /* Destaque para o Vencedor */
             .nfl-score-winner {
-                font-weight: 900;
-                color: #69be28; /* Green (Similar ao Google) */
+                font-size: 24px;
+                font-weight: 900; /* Negrito mais forte */
+                color: #69be28; /* Verde vibrante */
             }
-            .nfl-vs {
-                font-size: 14px;
-                color: #888;
-                font-weight: bold;
+            .nfl-abbr {
+                font-size: 10px;
+                color: #B0B0B0;
+                margin-left: 5px;
+            }
+            .nfl-footer {
+                font-size: 11px;
+                color: #B0B0B0;
+                text-align: center;
                 margin-top: 10px;
+                padding-top: 5px;
+                border-top: 1px solid #333;
             }
         </style>
     """, unsafe_allow_html=True)
@@ -235,39 +272,53 @@ def display_final_results_styled(df_finalized):
                 is_home_winner = row['Vencedor'] == row['Casa']
                 is_away_winner = row['Vencedor'] == row['Visitante']
                 
+                # Definir Status do Detalhe (melhora a exibição)
+                if row['Status'] == 'Agendado':
+                    status_display = f'📅 {row["Data"]} | {row["Detalhe Status"]}'
+                elif row['Status'] == 'Em Andamento':
+                    status_display = f'🔴 {row["Detalhe Status"]}'
+                else: # Finalizado
+                    status_display = f'✅ {row["Detalhe Status"]}'
+                
+                
                 # --- START CARD ---
                 st.markdown('<div class="nfl-card">', unsafe_allow_html=True)
 
                 # 1. Data/Status
-                st.markdown(f'<p class="nfl-date">{row["Data"]} | {row["Detalhe Status"]}</p>', unsafe_allow_html=True)
+                st.markdown(f'<p class="nfl-date-status">{status_display}</p>', unsafe_allow_html=True)
 
-                # 2. Layout do Placar: Logo | Score | VS | Score | Logo
-                # Configuração de colunas: (Logo, Score, VS, Score, Logo)
-                col_away_logo, col_away_score, col_vs, col_home_score, col_home_logo = st.columns([1.5, 2, 1, 2, 1.5])
+                # 2. Time Visitante
+                away_score_class = "nfl-score-winner" if is_away_winner else "nfl-score"
+                st.markdown(
+                    f"""
+                    <div class="nfl-team-block">
+                        <div class="nfl-team-info">
+                            <img src="{get_logo_url(row['Visitante'])}" width="30" height="30" style="margin-right: 5px;">
+                            <span class="nfl-abbr">{row['Visitante']}</span>
+                        </div>
+                        <span class="{away_score_class}">{row["Score Visitante"]}</span>
+                    </div>
+                    """, unsafe_allow_html=True
+                )
                 
-                # --- TIME VISITANTE ---
-                with col_away_logo:
-                    # O Streamlit ajusta a imagem automaticamente
-                    st.image(get_logo_url(row['Visitante']), width=35)
-                with col_away_score:
-                    score_class = "nfl-score-winner" if is_away_winner else "nfl-score"
-                    # Injeta o score com a classe CSS correta
-                    st.markdown(f'<p style="text-align: right;"><span class="{score_class}">{row["Score Visitante"]}</span></p>', unsafe_allow_html=True)
-
-                # --- SEPARADOR VS ---
-                with col_vs:
-                    st.markdown('<p class="nfl-vs" style="text-align: center;">VS</p>', unsafe_allow_html=True)
-                    
-                # --- TIME CASA ---
-                with col_home_score:
-                    score_class = "nfl-score-winner" if is_home_winner else "nfl-score"
-                    st.markdown(f'<p style="text-align: left;"><span class="{score_class}">{row["Score Casa"]}</span></p>', unsafe_allow_html=True)
-                with col_home_logo:
-                    st.image(get_logo_url(row['Casa']), width=35)
+                # 3. Time Casa
+                home_score_class = "nfl-score-winner" if is_home_winner else "nfl-score"
+                st.markdown(
+                    f"""
+                    <div class="nfl-team-block">
+                        <div class="nfl-team-info">
+                            <img src="{get_logo_url(row['Casa'])}" width="30" height="30" style="margin-right: 5px;">
+                            <span class="nfl-abbr">{row['Casa']}</span>
+                        </div>
+                        <span class="{home_score_class}">{row["Score Casa"]}</span>
+                    </div>
+                    """, unsafe_allow_html=True
+                )
                 
-                # 3. Status Vencedor (Rodapé)
-                winner_text = f'<b style="color: #69be28;">{row["Vencedor"]}</b>' if row['Vencedor'] not in ['Empate', 'A definir'] else row["Vencedor"]
-                st.markdown(f'<p style="font-size: 10px; color: #AAA; margin-top: 10px; text-align: center; border-top: 1px solid #333; padding-top: 8px;">Vencedor: {winner_text}</p>', unsafe_allow_html=True)
+                # 4. Status Vencedor (Rodapé) - Simplificado
+                footer_text = row["Detalhe Status"] if row['Status'] != 'Finalizado' else f'Vencedor: {row["Vencedor"]}'
+                
+                st.markdown(f'<p class="nfl-footer">{footer_text}</p>', unsafe_allow_html=True)
                 
                 # --- END CARD ---
                 st.markdown('</div>', unsafe_allow_html=True)
@@ -290,18 +341,35 @@ def main():
     
     league_name, current_season = get_league_metadata()
     
+    # Remove a URL de loading e a mensagem desnecessária
     st.title(f"🏈 Dashboard {league_name} - {current_season}")
     st.markdown("---")
     
+    # --- Side Bar e Controles (Se for o caso) ---
     st.sidebar.header("Controles")
     st.sidebar.markdown(f"**Liga:** {league_name}")
     st.sidebar.markdown(f"**Temporada:** {current_season} (Todos os Eventos)")
     st.sidebar.markdown("---")
     
+    # Salva o JSON no estado da sessão para ser acessado por load_data
+    if "uploaded_file_data" not in st.session_state:
+        st.session_state["uploaded_file_data"] = {}
+
+    try:
+        # Prepara o JSON para o load_data usar
+        with open("events (1).json", "r") as f:
+             st.session_state["uploaded_file_data"]["events (1).json"] = f.read()
+    except FileNotFoundError:
+        # st.warning("Arquivo 'events (1).json' não encontrado na estrutura do projeto.")
+        pass
+
+    
+    # --- CARREGAMENTO DE DADOS ---
+    # É importante carregar os dados antes das métricas
     df_events = load_data() 
 
     if df_events.empty:
-        st.warning("Não foi possível carregar os dados. Verifique a API.")
+        st.warning("Não foi possível carregar os dados. Verifique a API ou o arquivo JSON.")
         return
 
     # --- MÉTRICAS (KPIS) ---
@@ -325,9 +393,9 @@ def main():
     
     # --- JOGOS AO VIVO E RESULTADOS FINAIS ---
     
-    # 1. Jogos em Andamento (Ao Vivo) - Usando o novo estilo de Card para consistência
+    # 1. Jogos em Andamento (Ao Vivo)
     st.header("🔴 Jogos Ao Vivo (Em Andamento)")
-    df_in_progress = df_events[df_events['Status'] == 'Em Andamento'].sort_values(by='Detalhe Status', ascending=False)
+    df_in_progress = df_events[df_events['Status'] == 'Em Andamento'].sort_values(by='Data', ascending=False)
     
     if not df_in_progress.empty:
         display_final_results_styled(df_in_progress)
@@ -336,14 +404,13 @@ def main():
 
     st.markdown("---")
 
-    # 2. Resultados Recentes (Finalizados) - NOVO VISUAL CUSTOMIZADO
+    # 2. Resultados Recentes (Finalizados)
     st.header("✅ Resultados Finais")
     df_finalized = df_events[
         df_events['Status'].str.startswith('Finalizado', na=False)
     ].sort_values(by='Data', ascending=False)
     
     if not df_finalized.empty:
-        # Chama a função que renderiza os cards visuais 3x1
         display_final_results_styled(df_finalized)
     else:
         st.info("Nenhum resultado finalizado encontrado.")
