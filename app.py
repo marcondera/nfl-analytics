@@ -208,8 +208,7 @@ def display_final_results_styled(df_finalized):
                 box-shadow: 0 2px 5px rgba(0,0,0,0.4) !important;
                 color: #FAFAFA !important;
                 max-width: 1350px !important;
-                margin-left: auto;
-                margin-right: auto;
+                margin: 0 auto;
             }
 
             /* Forçar o style do Streamlit a aceitar a estilização */
@@ -453,5 +452,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
