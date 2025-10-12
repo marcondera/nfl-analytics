@@ -198,15 +198,6 @@ def display_final_results_styled(df_finalized):
             }
             
             /* Novo estilo para o container de cada jogo, simulando o card */
-            .game-container {
-                background-color: #282A36; 
-                border-radius: 12px; 
-                padding: 12px 15px; 
-                margin: 5px 0; 
-                box-shadow: 0 2px 5px rgba(0,0,0,0.4);
-                color: #FAFAFA;
-                max-width: 350px; 
-            }
 
             /* Forçar o style do Streamlit a aceitar a estilização */
             .st-emotion-cache-1kyxisp {
@@ -451,3 +442,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
