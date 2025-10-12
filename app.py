@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests 
 from dateutil.parser import isoparse 
 import matplotlib.pyplot as plt 
@@ -34,7 +34,7 @@ def get_period_name(period):
 
 def get_event_data(event):
     """
-    Extrai e formata os dados principais de um único evento de forma ultra-robusta.
+    Extrai e formatados dados principais de um único evento. Mantive a lógica robusta de detecção de 'Final'.
     """
     
     data_formatada = "N/A"
@@ -60,15 +60,15 @@ def get_event_data(event):
         # --- FIM DA CORREÇÃO DE DATA/HORA ---
 
         # Extração do Status Principal
-        status = comp.get('status', {}) # Dicionário de Status completo
+        status = comp.get('status', {}) 
         status_type = status.get('type', {})
         
-        # --- FIX DEFINITIVO: Análise de String Completa do Status (Resolve problema de 'Final') ---
-        # Converte o dicionário 'status_type' inteiro para string e força minúsculas.
+        # --- FIX ROBUSTO DE STATUS: Análise de String Completa do Status ---
+        # Converte o dicionário 'status_type' inteiro para string e força minúsculas, garantindo que "Final" seja detectado.
         status_text_check = str(status_type).lower() 
 
         if 'final' in status_text_check:
-            # Se a palavra 'final' está presente em QUALQUER lugar do dicionário de status/tipo
+            # Se a palavra 'final' está presente em QUALQUER lugar, o jogo está Finalizado.
             if 'ot' in status_text_check or 'overtime' in status_text_check:
                 status_pt = 'Finalizado (OT)'
             else:
@@ -80,7 +80,7 @@ def get_event_data(event):
         else:
             # Fallback 
             status_pt = status_type.get('description', 'Status Desconhecido') 
-        # --- FIM FIX DEFINITIVO ---
+        # --- FIM FIX ROBUSTO DE STATUS ---
 
         
         # O detalhe status é o que é exibido na tabela, o mais curto possível.
@@ -201,16 +201,19 @@ def load_data(api_url=API_URL_EVENTS_2025):
 # --- 3. FUNÇÃO: CALCULA EVOLUÇÃO W/L ---
 
 def process_for_win_loss_evolution(df_events):
-    """Calcula as vitórias e derrotas acumuladas para cada time."""
+    """
+    Calcula as vitórias e derrotas acumuladas para cada time, filtrando internamente 
+    todos os jogos cujo Status começa com 'Finalizado'.
+    """
     
     df_results = df_events[
-        # Este filtro agora funcionará perfeitamente porque 'get_event_data' garante que 'Finalizado' está correto.
         df_events['Status'].str.startswith('Finalizado', na=False)
     ].copy()
     
     if df_results.empty:
         return pd.DataFrame()
     
+    # Converte a data e garante a ordem cronológica
     df_results['Data_dt'] = pd.to_datetime(df_results['Data'], format='%d/%m/%Y', errors='coerce')
     df_results = df_results.sort_values(by='Data_dt').reset_index(drop=True)
 
@@ -240,13 +243,13 @@ def process_for_win_loss_evolution(df_events):
 
 # --- 4. FUNÇÃO: PLOTAGEM (Matplotlib) ---
 
-def plot_win_loss_evolution(df_evo, selected_teams):
+def plot_win_loss_evolution(df_evo, selected_teams, period_label):
     """Cria o gráfico de evolução W/L (Matplotlib) mostrando o saldo acumulado (W-L)."""
     
     df_plot = df_evo[df_evo['Time'].isin(selected_teams)]
     
     if df_plot.empty:
-        st.info("Nenhum time selecionado ou nenhum dado disponível.")
+        st.info("Nenhum time selecionado ou nenhum dado disponível no período.")
         return
     
     # Cria a figura e o eixo do Matplotlib
@@ -267,7 +270,7 @@ def plot_win_loss_evolution(df_evo, selected_teams):
     ax.axhline(0, color='gray', linestyle='--') 
     
     # Configuração do gráfico
-    ax.set_title('Evolução do Saldo W-L (Vitórias - Derrotas)', fontsize=14)
+    ax.set_title(f'Evolução do Saldo W-L ({period_label})', fontsize=14)
     ax.set_xlabel('Jogos Disputados', fontsize=12)
     ax.set_ylabel('Saldo Acumulado (W - L)', fontsize=12)
     ax.grid(True, linestyle=':', alpha=0.6)
@@ -277,7 +280,7 @@ def plot_win_loss_evolution(df_evo, selected_teams):
 
     # Exibe o gráfico no Streamlit
     st.pyplot(fig)
-    plt.close(fig) # Fecha a figura para liberar memória
+    plt.close(fig) 
 
 
 # --- 5. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
@@ -303,7 +306,7 @@ def main():
         st.warning("Não foi possível carregar os dados. Verifique a API.")
         return
 
-    # --- MÉTRICAS (KPIS) ---
+    # --- MÉTRICAS (KPIS) - USAM df_events (TODOS OS JOGOS) ---
     st.header("Visão Geral do Status dos Jogos")
     
     status_counts = df_events['Status'].value_counts()
@@ -322,13 +325,15 @@ def main():
 
     st.markdown("---")
     
-    # --- GRÁFICO DE EVOLUÇÃO W/L (Matplotlib) ---
-    st.header("📈 Evolução do Saldo W-L")
+    # --- GRÁFICO DE EVOLUÇÃO W/L (Matplotlib) - USA TODOS OS JOGOS FINALIZADOS DA TEMPORADA ---
+    period_label = "Jogos Finalizados da Temporada"
+    st.header(f"📈 Evolução do Saldo W-L ({period_label})")
     
+    # Usa o DataFrame COMPLETO (df_events), e a função interna fará o filtro para 'Finalizado'.
     df_evo = process_for_win_loss_evolution(df_events)
     
     if df_evo.empty:
-        st.info("A API não retornou jogos **finalizados** válidos para o cálculo. O gráfico aparecerá com todos os times assim que os dados forem carregados corretamente.")
+        st.info("Não há dados de jogos **finalizados** válidos para o cálculo do gráfico. Ele aparecerá com todos os times assim que os dados estiverem disponíveis.")
     else:
         all_teams = sorted(df_evo['Time'].unique().tolist())
         
@@ -342,14 +347,14 @@ def main():
             key='team_selector_mpl'
         )
         
-        plot_win_loss_evolution(df_evo, selected_teams)
+        plot_win_loss_evolution(df_evo, selected_teams, period_label)
     
     st.markdown("---")
 
-    # --- TABELAS DETALHADAS ---
+    # --- TABELAS DETALHADAS - USAM df_events (TODOS OS JOGOS) ---
     
     # 1. Jogos em Andamento (Ao Vivo)
-    st.header("🔴 Jogos Ao Vivo")
+    st.header("🔴 Jogos Ao Vivo (Temporada Atual)")
     df_in_progress = df_events[df_events['Status'] == 'Em Andamento'].sort_values(by='Detalhe Status', ascending=False)
     
     if not df_in_progress.empty:
@@ -362,8 +367,8 @@ def main():
         st.info("Nenhum jogo em andamento no momento.")
 
 
-    # 2. Resultados Recentes (Finalizados)
-    st.header("✅ Resultados Finais")
+    # 2. Resultados Recentes (Finalizados) - A BASE DE DADOS PARA O GRÁFICO
+    st.header("✅ Resultados Finais (Temporada Atual)")
     df_finalized = df_events[df_events['Status'].str.startswith('Finalizado', na=False)].sort_values(by='Data', ascending=False)
     
     if not df_finalized.empty:
