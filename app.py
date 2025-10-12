@@ -8,47 +8,11 @@ from dateutil.parser import isoparse
 # Configuração da página
 st.set_page_config(
     page_title="NFL Dashboard",
-    layout="wide", # Essencial para que o CSS de largura máxima funcione
+    layout="wide", # Essencial para que as colunas laterais tenham largura
     initial_sidebar_state="collapsed" 
 )
 
-# --- 0. INJEÇÃO DE CSS CUSTOMIZADO PARA CENTRALIZAÇÃO E MARGENS (Solução Mais Estável) ---
-
-custom_css = """
-<style>
-/* 1. Centraliza o conteúdo (o bloco que contém todos os seus elementos) */
-/* Aplica max-width e centralização ao container principal de elementos verticais */
-div[data-testid="stVerticalBlock"] {
-    max-width: 85% !important; /* Limita a largura do conteúdo (Margens de 15% / 2 = 7.5% de cada lado) */
-    margin: 0 auto; /* Centraliza o bloco automaticamente, criando margens responsivas */
-}
-
-/* 2. Estilos customizados para os cards (Mantidos do seu código original) */
-.result-card {
-    border: 1px solid #ddd;
-    padding: 15px;
-    margin-bottom: 10px;
-    border-radius: 8px;
-    background-color: #f9f9f9;
-}
-.home-team, .away-team {
-    font-weight: bold;
-}
-.score {
-    font-size: 1.2em;
-    font-weight: bold;
-}
-.game-info {
-    font-size: 0.9em;
-    color: #555;
-}
-</style>
-"""
-
-# A injeção DEVE ser um dos primeiros comandos st. para garantir que o CSS seja aplicado
-st.markdown(custom_css, unsafe_allow_html=True)
-# --------------------------------------------------------------------------------
-
+# --- A SEÇÃO 0 (INJEÇÃO DE CSS) FOI REMOVIDA PARA EVITAR O BUG ---
 
 # --- 1. CONFIGURAÇÃO DE LOGOS E API ---
 
@@ -265,6 +229,31 @@ def display_final_results_styled(df_results):
     # Define o número de colunas (3 cards por linha)
     cols = st.columns(3)
     
+    # CSS Customizado para Cards (Mantido aqui, mas pode ser removido e colocado em um st.markdown inicial se necessário)
+    card_styles = """
+    <style>
+    .result-card {
+        border: 1px solid #ddd;
+        padding: 15px;
+        margin-bottom: 10px;
+        border-radius: 8px;
+        background-color: #f9f9f9;
+    }
+    .home-team, .away-team {
+        font-weight: bold;
+    }
+    .score {
+        font-size: 1.2em;
+        font-weight: bold;
+    }
+    .game-info {
+        font-size: 0.9em;
+        color: #555;
+    }
+    </style>
+    """
+    st.markdown(card_styles, unsafe_allow_html=True) # Injeta os estilos dos cards aqui
+
     for i, row in df_results.iterrows():
         col = cols[i % 3] # Distribui os cards entre as 3 colunas
         
@@ -318,79 +307,85 @@ def main():
     
     league_name, current_season = get_league_metadata()
     
-    st.title(f"🏈 Dashboard {league_name} - {current_season}")
-    st.markdown("---")
-    
-    st.sidebar.header("Controles")
-    st.sidebar.markdown(f"**Liga:** {league_name}")
-    st.sidebar.markdown(f"**Temporada:** {current_season} (Todos os Eventos)")
-    st.sidebar.markdown("---")
-    
-    if st.sidebar.button("Recarregar Dados Agora"):
-        st.rerun() 
+    # NOVO: Define colunas laterais vazias para criar a margem centralizada
+    # 15% (margem esquerda) | 70% (conteúdo) | 15% (margem direita)
+    col_left, col_center, col_right = st.columns([15, 70, 15]) 
+
+    # Todo o conteúdo do dashboard deve ir para a coluna central
+    with col_center:
+        st.title(f"🏈 Dashboard {league_name} - {current_season}")
+        st.markdown("---")
         
-    df_events = load_data()
+        st.sidebar.header("Controles")
+        st.sidebar.markdown(f"**Liga:** {league_name}")
+        st.sidebar.markdown(f"**Temporada:** {current_season} (Todos os Eventos)")
+        st.sidebar.markdown("---")
+        
+        if st.sidebar.button("Recarregar Dados Agora"):
+            st.rerun() 
+            
+        df_events = load_data()
 
-    if df_events.empty:
-        st.warning("Não foi possível carregar os dados. Verifique a API.")
-        return
+        if df_events.empty:
+            st.warning("Não foi possível carregar os dados. Verifique a API.")
+            return
 
-    # --- MÉTRICAS (KPIS) ---
-    st.header("Visão Geral do Status dos Jogos")
-    
-    status_counts = df_events['Status'].value_counts()
-    
-    total_games = len(df_events)
-    finalizados = status_counts.get('Finalizado', 0) + status_counts.get('Finalizado (OT)', 0)
-    em_andamento = status_counts.get('Em Andamento', 0)
-    agendados = status_counts.get('Agendado', 0)
-    erros = status_counts.get('ERRO', 0)
-    
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Total de Jogos", total_games)
-    col2.metric("Finalizados", finalizados)
-    col3.metric("Em Andamento", em_andamento)
-    col4.metric("Agendados", agendados)
-    col5.metric("Erros de Extração", erros)
+        # --- MÉTRICAS (KPIS) ---
+        st.header("Visão Geral do Status dos Jogos")
+        
+        status_counts = df_events['Status'].value_counts()
+        
+        total_games = len(df_events)
+        finalizados = status_counts.get('Finalizado', 0) + status_counts.get('Finalizado (OT)', 0)
+        em_andamento = status_counts.get('Em Andamento', 0)
+        agendados = status_counts.get('Agendado', 0)
+        erros = status_counts.get('ERRO', 0)
+        
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.metric("Total de Jogos", total_games)
+        col2.metric("Finalizados", finalizados)
+        col3.metric("Em Andamento", em_andamento)
+        col4.metric("Agendados", agendados)
+        col5.metric("Erros de Extração", erros)
 
-    st.markdown("---")
-    
-    # --- RESULTADOS RECENTES (CARDS) ---
-    st.header("✅ Resultados Recentes")
-    df_finalized = df_events[
-        df_events['Status'].str.startswith('Finalizado', na=False)
-    ].sort_values(by='Data', ascending=False)
+        st.markdown("---")
+        
+        # --- RESULTADOS RECENTES (CARDS) ---
+        st.header("✅ Resultados Recentes")
+        df_finalized = df_events[
+            df_events['Status'].str.startswith('Finalizado', na=False)
+        ].sort_values(by='Data', ascending=False)
 
-    if not df_finalized.empty:
-        # Exibe apenas os 9 resultados mais recentes nos cards
-        display_final_results_styled(df_finalized.head(9))
-    else:
-        st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum resultado finalizado encontrado.</p>', unsafe_allow_html=True)
+        if not df_finalized.empty:
+            # Exibe apenas os 9 resultados mais recentes nos cards
+            display_final_results_styled(df_finalized.head(9))
+        else:
+            st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum resultado finalizado encontrado.</p>', unsafe_allow_html=True)
 
-    # SEPARADOR ENTRE RESULTADOS RECENTES E AGENDADOS
-    st.markdown("---")
+        # SEPARADOR ENTRE RESULTADOS RECENTES E AGENDADOS
+        st.markdown("---")
 
-    # --- JOGOS AGENDADOS ---
-    st.header("⏳ Próximos Jogos")
-    df_scheduled = df_events[
-        df_events['Status'] == 'Agendado'
-    ].sort_values(by='Data', ascending=True)
+        # --- JOGOS AGENDADOS ---
+        st.header("⏳ Próximos Jogos")
+        df_scheduled = df_events[
+            df_events['Status'] == 'Agendado'
+        ].sort_values(by='Data', ascending=True)
 
-    if not df_scheduled.empty:
-        # Reutiliza a função de cards para agendados
-        display_final_results_styled(df_scheduled.head(9))
-    else:
-        st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum jogo agendado nos dados fornecidos.</p>', unsafe_allow_html=True)
+        if not df_scheduled.empty:
+            # Reutiliza a função de cards para agendados
+            display_final_results_styled(df_scheduled.head(9))
+        else:
+            st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum jogo agendado nos dados fornecidos.</p>', unsafe_allow_html=True)
 
-    # SEPARADOR ENTRE AGENDADOS E HISTÓRICO COMPLETO
-    st.markdown("---")
+        # SEPARADOR ENTRE AGENDADOS E HISTÓRICO COMPLETO
+        st.markdown("---")
 
-    # --- HISTÓRICO COMPLETO DA TEMPORADA (TABELA) ---
-    st.header("📚 Histórico Completo da Temporada")
-    st.dataframe(
-        df_events[['Data', 'Hora', 'Jogo', 'Status', 'Vencedor', 'Score Casa', 'Score Visitante', 'Detalhe Status']],
-        use_container_width=True
-    )
+        # --- HISTÓRICO COMPLETO DA TEMPORADA (TABELA) ---
+        st.header("📚 Histórico Completo da Temporada")
+        st.dataframe(
+            df_events[['Data', 'Hora', 'Jogo', 'Status', 'Vencedor', 'Score Casa', 'Score Visitante', 'Detalhe Status']],
+            use_container_width=True
+        )
 
 
 if __name__ == '__main__':
