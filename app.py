@@ -3,7 +3,7 @@ import pandas as pd
 import json
 from datetime import datetime
 import requests 
-from dateutil.parser import isoparse # Importação garantida pelo requirements.txt
+from dateutil.parser import isoparse # Usado para análise robusta da data
 
 # Configuração da página
 st.set_page_config(
@@ -23,6 +23,15 @@ def get_league_metadata():
     return 'NFL', '2025'
 
 
+def get_period_name(period):
+    """Mapeia o número do período para o nome do Quarto/Overtime."""
+    if period == 1: return "1st Quarter"
+    if period == 2: return "2nd Quarter"
+    if period == 3: return "3rd Quarter"
+    if period == 4: return "4th Quarter"
+    if period > 4: return "Overtime"
+    return ""
+
 def get_event_data(event):
     """
     Extrai e formata os dados principais de um único evento de forma ultra-robusta.
@@ -33,27 +42,14 @@ def get_event_data(event):
     hora_formatada = "N/A"
     status_pt = "N/A"
     winner_team = "A definir"
+    detail_status = "N/A" 
     
-    # 1. Extração da data e Detalhe Status (Primeiro ponto de falha)
+    # 1. Extração inicial dos dados da competição
     try:
         comp = event['competitions'][0]
         date_iso = comp.get('date')
-        
-        # Tenta extrair e formatar a data/hora (CORREÇÃO DE N/A)
-        if date_iso:
-            try:
-                # isoparse é a ferramenta ideal para strings ISO 8601 como '2025-10-12T20:05Z'.
-                dt_utc = isoparse(date_iso)
-                
-                # Converte para BRT (UTC-3)
-                dt_brt = dt_utc - pd.Timedelta(hours=3)
 
-                data_formatada = dt_brt.strftime('%d/%m/%Y')
-                hora_formatada = dt_brt.strftime('%H:%M') + ' BRT'
-            except Exception:
-                pass # Mantém N/A se a formatação falhar
-        
-        # Extração do Status Principal e Detalhe Status (CORREÇÃO DE N/A)
+        # Extração do Status Principal
         status_type = comp.get('status', {}).get('type', {})
         status_en = status_type.get('description')
         
@@ -65,11 +61,47 @@ def get_event_data(event):
         }
         status_pt = status_map.get(status_en, status_en)
         
-        # Detalhe Status
-        detail_status = comp.get('status', {}).get('detail', 'N/A')
+        # Tentativa de extração do Detalhe Status da API
+        detail_status_raw = comp.get('status', {}).get('detail')
+        if detail_status_raw:
+            detail_status = detail_status_raw
+        
+        # --- LÓGICA DE CORREÇÃO DO DETALHE STATUS ---
+        
+        # Se o detalhe status falhou, mas o jogo está em andamento, nós o construímos
+        if status_pt == 'Em Andamento' and detail_status == 'N/A':
+            clock = comp.get('status', {}).get('displayClock', '')
+            period_num = comp.get('status', {}).get('period', 0)
+            period_name = get_period_name(period_num)
+            
+            if clock and period_name:
+                detail_status = f"{clock} - {period_name}"
+            elif detail_status_raw:
+                 # Fallback para o valor cru, caso ele exista
+                detail_status = detail_status_raw
+        elif status_pt == 'Em Andamento' and detail_status == 'N/A' and status_type.get('shortDetail'):
+            # Último fallback, usando shortDetail (ex: "Q3")
+            detail_status = status_type.get('shortDetail', 'Em Andamento')
+        elif detail_status == 'N/A' and status_type.get('shortDetail'):
+             # Para jogos agendados ou finalizados sem detail, o shortDetail pode ser melhor que N/A
+            detail_status = status_type.get('shortDetail', 'N/A')
+        # Se o jogo estiver agendado, a data e hora formatada já dão o contexto, mas mantemos o que a API fornece
+        
+        
+        # --- CORREÇÃO DE DATA/HORA (Usando isoparse) ---
+        if date_iso:
+            try:
+                dt_utc = isoparse(date_iso) 
+                dt_brt = dt_utc - pd.Timedelta(hours=3) # Converte para BRT (UTC-3)
+
+                data_formatada = dt_brt.strftime('%d/%m/%Y')
+                hora_formatada = dt_brt.strftime('%H:%M') + ' BRT'
+            except Exception:
+                pass 
+        # --- FIM DA CORREÇÃO DE DATA/HORA ---
 
 
-        # 2. Extração dos times e scores (Segundo ponto de falha - AttributeError)
+        # 2. Extração dos times e scores
         competitors = comp.get('competitors', [])
         home_team = {} 
         away_team = {} 
@@ -128,7 +160,7 @@ def get_event_data(event):
         }
         
     except Exception as e:
-        # Se QUALQUER coisa acima falhar (estrutura inesperada), cai aqui.
+        # Se QUALQUER coisa acima falhar, cai aqui.
         return {
             'Jogo': 'Erro de Estrutura de Dados',
             'Data': 'N/A',
@@ -139,7 +171,7 @@ def get_event_data(event):
             'Visitante': 'ERRO DE PROCESSAMENTO',
             'Score Visitante': 'N/A',
             'Vencedor': 'N/A',
-            'Detalhe Status': f'Falha: {type(e).__name__}'
+            'Detalhe Status': f'Falha na extração: {type(e).__name__}'
         }
 
 
