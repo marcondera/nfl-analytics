@@ -4,11 +4,10 @@ import json
 from datetime import datetime, timedelta
 import requests 
 from dateutil.parser import isoparse 
-import matplotlib.pyplot as plt 
 
 # Configuração da página
 st.set_page_config(
-    page_title="NFL 2025 Eventos e Evolução W/L",
+    page_title="NFL 2025 Eventos e Resultados",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -34,7 +33,8 @@ def get_period_name(period):
 
 def get_event_data(event):
     """
-    Extrai e formatados dados principais de um único evento. Mantém a lógica robusta de detecção de 'Final'.
+    Extrai e formata os dados principais de um único evento.
+    A lógica de status robusta foi mantida.
     """
     
     data_formatada = "N/A"
@@ -64,7 +64,6 @@ def get_event_data(event):
         status_type = status.get('type', {})
         
         # --- FIX ROBUSTO DE STATUS: Análise de String Completa do Status ---
-        # Converte o dicionário 'status_type' inteiro para string e força minúsculas, garantindo que "Final" seja detectado.
         status_text_check = str(status_type).lower() 
 
         if 'final' in status_text_check:
@@ -198,93 +197,7 @@ def load_data(api_url=API_URL_EVENTS_2025):
     df = pd.DataFrame(events_data)
     return df
 
-# --- 3. FUNÇÃO: CALCULA EVOLUÇÃO W/L ---
-
-def process_for_win_loss_evolution(df_events):
-    """
-    Calcula as vitórias e derrotas acumuladas para cada time, filtrando todos os jogos
-    cujo Status começa com 'Finalizado' (o mesmo filtro da seção Resultados Finais).
-    """
-    
-    # Este filtro garante que APENAS os jogos finalizados sejam considerados para o W-L.
-    df_results = df_events[
-        df_events['Status'].str.startswith('Finalizado', na=False)
-    ].copy()
-    
-    if df_results.empty:
-        return pd.DataFrame()
-    
-    # Converte a data e garante a ordem cronológica
-    df_results['Data_dt'] = pd.to_datetime(df_results['Data'], format='%d/%m/%Y', errors='coerce')
-    df_results = df_results.sort_values(by='Data_dt').reset_index(drop=True)
-
-    evolution_data = []
-    for index, row in df_results.iterrows():
-        casa = row['Casa']
-        visitante = row['Visitante']
-        vencedor = row['Vencedor']
-        
-        # Atribuição de W/L (+1 para Vitoria, -1 para Derrota)
-        if vencedor == casa:
-            evolution_data.append({'Time': casa, 'Data_Jogo': row['Data_dt'], 'Delta': 1})
-            evolution_data.append({'Time': visitante, 'Data_Jogo': row['Data_dt'], 'Delta': -1})
-        elif vencedor == visitante:
-            evolution_data.append({'Time': visitante, 'Data_Jogo': row['Data_dt'], 'Delta': 1})
-            evolution_data.append({'Time': casa, 'Data_Jogo': row['Data_dt'], 'Delta': -1})
-
-    df_evo = pd.DataFrame(evolution_data)
-    if df_evo.empty:
-        return pd.DataFrame()
-        
-    df_evo = df_evo.sort_values(by=['Time', 'Data_Jogo'])
-    df_evo['Saldo Acumulado'] = df_evo.groupby('Time')['Delta'].cumsum()
-    df_evo['Total Jogos'] = df_evo.groupby('Time').cumcount() + 1
-    
-    return df_evo[['Time', 'Data_Jogo', 'Saldo Acumulado', 'Total Jogos']]
-
-# --- 4. FUNÇÃO: PLOTAGEM (Matplotlib) ---
-
-def plot_win_loss_evolution(df_evo, selected_teams, period_label):
-    """Cria o gráfico de evolução W/L (Matplotlib) mostrando o saldo acumulado (W-L)."""
-    
-    df_plot = df_evo[df_evo['Time'].isin(selected_teams)]
-    
-    if df_plot.empty:
-        st.info("Nenhum time selecionado ou nenhum dado disponível.")
-        return
-    
-    # Cria a figura e o eixo do Matplotlib
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    # Itera sobre os times selecionados para plotar as linhas
-    for team in selected_teams:
-        team_data = df_plot[df_plot['Time'] == team]
-        ax.plot(
-            team_data['Total Jogos'], 
-            team_data['Saldo Acumulado'], 
-            marker='o', 
-            label=team,
-            linestyle='-'
-        )
-
-    # Linha de base para 0
-    ax.axhline(0, color='gray', linestyle='--') 
-    
-    # Configuração do gráfico
-    ax.set_title(f'Evolução do Saldo W-L ({period_label})', fontsize=14)
-    ax.set_xlabel('Jogos Disputados', fontsize=12)
-    ax.set_ylabel('Saldo Acumulado (W - L)', fontsize=12)
-    ax.grid(True, linestyle=':', alpha=0.6)
-    ax.legend(title='Time', loc='upper left')
-    
-    ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
-
-    # Exibe o gráfico no Streamlit
-    st.pyplot(fig)
-    plt.close(fig) 
-
-
-# --- 5. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
+# --- 3. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
 
 def main():
     
@@ -327,33 +240,7 @@ def main():
 
     st.markdown("---")
     
-    # --- GRÁFICO DE EVOLUÇÃO W/L (Matplotlib) - USA TODOS OS JOGOS FINALIZADOS DA TEMPORADA ---
-    period_label = "Jogos Finalizados da Temporada"
-    st.header(f"📈 Evolução do Saldo W-L ({period_label})")
-    
-    # Usa o DataFrame COMPLETO, e a função interna o filtra para 'Finalizado'.
-    df_evo = process_for_win_loss_evolution(df_events)
-    
-    if df_evo.empty:
-        st.info("Não há dados de jogos **finalizados** válidos para o cálculo do gráfico. Ele aparecerá com todos os times assim que os dados estiverem disponíveis.")
-    else:
-        all_teams = sorted(df_evo['Time'].unique().tolist())
-        
-        # Seleciona TODOS os times por padrão
-        default_teams = all_teams 
-        
-        selected_teams = st.sidebar.multiselect(
-            "Selecione os Times para o Gráfico de Saldo W-L:",
-            options=all_teams,
-            default=default_teams, 
-            key='team_selector_mpl'
-        )
-        
-        plot_win_loss_evolution(df_evo, selected_teams, period_label)
-    
-    st.markdown("---")
-
-    # --- TABELAS DETALHADAS - USAM df_events (TODOS OS JOGOS) ---
+    # --- TABELAS DETALHADAS ---
     
     # 1. Jogos em Andamento (Ao Vivo)
     st.header("🔴 Jogos Ao Vivo (Temporada Atual)")
@@ -368,8 +255,9 @@ def main():
     else:
         st.info("Nenhum jogo em andamento no momento.")
 
+    st.markdown("---")
 
-    # 2. Resultados Recentes (Finalizados) - O MESMO FILTRO QUE ALIMENTA O GRÁFICO
+    # 2. Resultados Recentes (Finalizados)
     st.header("✅ Resultados Finais (Temporada Atual)")
     df_finalized = df_events[df_events['Status'].str.startswith('Finalizado', na=False)].sort_values(by='Data', ascending=False)
     
