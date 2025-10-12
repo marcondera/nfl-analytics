@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 import requests 
 from dateutil.parser import isoparse 
-import matplotlib.pyplot as plt # NOVO: Importação do Matplotlib
+import matplotlib.pyplot as plt # Matplotlib para estabilidade
 
 # Configuração da página
 st.set_page_config(
@@ -18,7 +18,6 @@ API_URL_EVENTS_2025 = "https://partners.api.espn.com/v2/sports/football/nfl/even
 
 
 # --- 2. FUNÇÕES DE BUSCA E PROCESSAMENTO DE DADOS ---
-# (Funções get_league_metadata, get_period_name e get_event_data permanecem inalteradas da versão estável)
 
 def get_league_metadata():
     """Retorna informações estáticas da liga."""
@@ -231,9 +230,6 @@ def process_for_win_loss_evolution(df_events):
     # Adiciona um índice de jogo sequencial
     df_evo['Total Jogos'] = df_evo.groupby('Time').cumcount() + 1
     
-    # Remove duplicatas por jogo, mantendo apenas o último registro do saldo para o gráfico
-    # df_evo = df_evo.drop_duplicates(subset=['Time', 'Data_Jogo'], keep='last')
-    
     return df_evo[['Time', 'Data_Jogo', 'Saldo Acumulado', 'Total Jogos']]
 
 # --- 4. FUNÇÃO: PLOTAGEM (Matplotlib) ---
@@ -329,15 +325,19 @@ def main():
     
     # CORREÇÃO CRÍTICA: Checagem de segurança (Resolve o KeyError)
     if df_evo.empty:
-        st.info("Não há dados de jogos finalizados para calcular o gráfico de evolução.")
+        # Apenas mostra a mensagem se não houver dados
+        st.info("Não há dados de jogos finalizados na API para calcular o gráfico de evolução. O gráfico aparecerá automaticamente após o primeiro jogo finalizado.")
     else:
+        # Lógica de seleção (só executa se houver dados)
         all_teams = sorted(df_evo['Time'].unique().tolist())
-        default_teams = all_teams[:5] # Seleciona os primeiros 5 por padrão
+        
+        # O ÚNICO AJUSTE: Define TODOS os times como padrão selecionado
+        default_teams = all_teams 
         
         selected_teams = st.sidebar.multiselect(
             "Selecione os Times para o Gráfico de Saldo W-L:",
             options=all_teams,
-            default=default_teams,
+            default=default_teams, # AGORA SELECIONA TODOS OS TIMES POR PADRÃO
             key='team_selector_mpl'
         )
         
