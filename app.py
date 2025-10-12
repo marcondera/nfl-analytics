@@ -291,4 +291,163 @@ def display_final_results_styled(df_finalized):
                 # 1. Data/Status
                 st.markdown(f'<p class="nfl-date-status">{status_display}</p>', unsafe_allow_html=True)
 
-                #
+                # 2. Time Visitante
+                away_score_class = "nfl-score-winner" if is_away_winner else "nfl-score"
+                st.markdown(
+                    f"""
+                    <div class="nfl-team-block">
+                        <div class="nfl-team-info">
+                            <img src="{get_logo_url(row['Visitante'])}" width="30" height="30" style="margin-right: 5px;">
+                            <span class="nfl-abbr">{row['Visitante']}</span>
+                        </div>
+                        <span class="{away_score_class}">{row["Score Visitante"]}</span>
+                    </div>
+                    """, unsafe_allow_html=True
+                )
+                
+                # 3. Time Casa
+                home_score_class = "nfl-score-winner" if is_home_winner else "nfl-score"
+                st.markdown(
+                    f"""
+                    <div class="nfl-team-block">
+                        <div class="nfl-team-info">
+                            <img src="{get_logo_url(row['Casa'])}" width="30" height="30" style="margin-right: 5px;">
+                            <span class="nfl-abbr">{row['Casa']}</span>
+                        </div>
+                        <span class="{home_score_class}">{row["Score Casa"]}</span>
+                    </div>
+                    """, unsafe_allow_html=True
+                )
+                
+                # 4. Rodapé (Nome Completo do Jogo)
+                st.markdown(f'<p class="nfl-footer">{row["Jogo"]}</p>', unsafe_allow_html=True)
+                
+                # FIM DO CONTEÚDO
+
+def display_season_history_table(df_history):
+    """
+    Renderiza a tabela completa e estilizada dos jogos finalizados da temporada.
+    """
+    # 1. Seleciona e Renomeia colunas para PT-BR
+    df_table = df_history[
+        ['Data', 'Casa', 'Score Casa', 'Visitante', 'Score Visitante', 'Vencedor', 'Detalhe Status', 'Jogo']
+    ].rename(columns={
+        'Score Casa': 'Placar Casa',
+        'Score Visitante': 'Placar Fora',
+        'Detalhe Status': 'Status',
+        'Visitante': 'Time Visitante',
+        'Casa': 'Time Casa'
+    })
+    
+    # 2. Renderiza a tabela com o Streamlit, configurando as colunas
+    st.dataframe(
+        df_table, 
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Data": st.column_config.TextColumn("Data", width="small"),
+            "Time Casa": st.column_config.TextColumn("Time Casa", width="small"),
+            "Placar Casa": st.column_config.NumberColumn("Placar Casa", format="%d", width="small"),
+            "Time Visitante": st.column_config.TextColumn("Time Visitante", width="small"),
+            "Placar Fora": st.column_config.NumberColumn("Placar Fora", format="%d", width="small"),
+            "Vencedor": st.column_config.TextColumn("Vencedor", width="small"),
+            "Status": st.column_config.TextColumn("Status", width="small"),
+            "Jogo": st.column_config.TextColumn("Jogo", width="large") # Jogo completo
+        }
+    )
+                
+# --- 4. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
+
+def main():
+    
+    # Injeta CSS Global para o fundo e CENTRALIZAÇÃO DE TEXTOS
+    st.markdown("""
+        <style>
+            /* Centraliza H1 (Título Principal) */
+            h1 {
+                text-align: center;
+                padding-top: 0px !important;
+                margin-top: 0px !important;
+                margin-bottom: 1rem;
+            }
+            /* Centraliza H2 (Títulos das Seções) */
+            h2 {
+                text-align: center;
+                margin-top: 1.5rem; 
+                margin-bottom: 0.5rem; 
+            }
+            /* Ajusta padding superior do container principal do Streamlit */
+            .css-1d3f0g2 { 
+                padding-top: 1.5rem; 
+            }
+            /* Estilo para a linha divisória (---) */
+            hr {
+                margin-top: 2rem;
+                margin-bottom: 2rem;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    st.title("🏈 Resultados da NFL")
+    
+    df_events = load_data() 
+
+    if df_events.empty:
+        st.error("Não foi possível carregar os dados. Verifique a fonte de dados (JSON ou API).")
+        return
+    
+    # --- JOGOS AO VIVO (EM ANDAMENTO) ---
+    
+    st.header("🔴 Ao Vivo")
+    df_in_progress = df_events[df_events['Status'] == 'Em Andamento'].sort_values(by='Data', ascending=False)
+    
+    if not df_in_progress.empty:
+        display_final_results_styled(df_in_progress)
+    else:
+        st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum jogo em andamento no momento.</p>', unsafe_allow_html=True)
+
+    # SEPARADOR ENTRE AO VIVO E FINALIZADOS
+    st.markdown("---")
+
+    # --- RESULTADOS FINAIS (CARDS) ---
+    
+    st.header("✅ Resultados Recentes")
+    df_finalized = df_events[
+        df_events['Status'].str.startswith('Finalizado', na=False)
+    ].sort_values(by='Data', ascending=False)
+    
+    if not df_finalized.empty:
+        # Exibe apenas os 9 resultados mais recentes nos cards
+        display_final_results_styled(df_finalized.head(9))
+    else:
+        st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum resultado finalizado encontrado.</p>', unsafe_allow_html=True)
+        
+    # SEPARADOR ENTRE RESULTADOS RECENTES E AGENDADOS
+    st.markdown("---")
+    
+    # --- JOGOS AGENDADOS ---
+    st.header("⏳ Próximos Jogos")
+    df_scheduled = df_events[
+        df_events['Status'] == 'Agendado'
+    ].sort_values(by='Data', ascending=True)
+    
+    if not df_scheduled.empty:
+        display_final_results_styled(df_scheduled)
+    else:
+        st.markdown('<p style="color:#888; text-align: center; margin-bottom: 1rem;">Nenhum jogo agendado nos dados fornecidos.</p>', unsafe_allow_html=True)
+
+    # SEPARADOR ENTRE AGENDADOS E HISTÓRICO COMPLETO
+    st.markdown("---")
+    
+    # --- HISTÓRICO COMPLETO DA TEMPORADA (TABELA) ---
+    st.header("📚 Histórico Completo da Temporada")
+    
+    if not df_finalized.empty:
+        # Reutiliza o df_finalized (todos os jogos finalizados)
+        display_season_history_table(df_finalized)
+    else:
+        st.markdown('<p style="color:#888; text-align: center;">Nenhum resultado finalizado no histórico para exibir.</p>', unsafe_allow_html=True)
+
+
+if __name__ == '__main__':
+    main()
