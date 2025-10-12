@@ -232,4 +232,17 @@ def main():
 
     # 3. Próximos Jogos Agendados
     st.header("📅 Próximos Jogos")
-    df_scheduled =
+    df_scheduled = df_events[df_events['Status'] == 'Agendado'].sort_values(by=['Data', 'Hora'])
+    
+    if not df_scheduled.empty:
+        st.dataframe(
+            df_scheduled[['Data', 'Hora', 'Jogo', 'Casa', 'Visitante']],
+            hide_index=True,
+            use_container_width=True
+        )
+    else:
+        st.info("Nenhum jogo agendado para o período do Scoreboard.")
+
+
+if __name__ == '__main__':
+    main()
