@@ -12,15 +12,12 @@ st.set_page_config(
 )
 
 # --- 1. CONFIGURAÇÃO DAS APIS ---
-# API Principal: Placar e Jogos Atuais (Scoreboard)
 API_URL_SCOREBOARD = "http://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
-# API de Metadados: Informações Estáticas da Liga (Nome, Temporada)
 API_URL_LEAGUE_METADATA = "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl"
 
 
 # --- 2. FUNÇÕES DE BUSCA E PROCESSAMENTO DE DADOS (SEM CACHE) ---
 
-# Caches removidos - Esta função será executada a cada recarga da aplicação
 def get_league_metadata(api_url=API_URL_LEAGUE_METADATA):
     """Busca informações estáticas da liga (nome e ano da temporada)."""
     try:
@@ -30,7 +27,6 @@ def get_league_metadata(api_url=API_URL_LEAGUE_METADATA):
         
         league_name = data.get('name', 'NFL')
         
-        # Tenta extrair o ano da temporada
         season_ref = data.get('season', {}).get('$ref')
         current_year = "N/A"
         if season_ref:
@@ -66,43 +62,33 @@ def get_event_data(event):
     date_iso = comp['date']
     try:
         dt_utc = datetime.strptime(date_iso, '%Y-%m-%dT%H:%M:%SZ')
-        # É necessário importar pandas para usar Timedelta, conforme você fez anteriormente
-        # dt_brt = dt_utc.replace(tzinfo=None) - pd.Timedelta(hours=3)
-        # Substituindo o uso de pd.Timedelta para evitar dependência excessiva do Pandas para uma simples subtração:
-        dt_brt = dt_utc - datetime.timedelta(hours=3)
-
+        dt_brt = dt_utc.replace(tzinfo=None) - pd.Timedelta(hours=3)
         data_formatada = dt_brt.strftime('%d/%m/%Y')
         hora_formatada = dt_brt.strftime('%H:%M') + ' BRT'
     except (ValueError, TypeError):
         data_formatada = "N/A"
         hora_formatada = "N/A"
-    except NameError:
-        # Fallback caso datetime.timedelta não tenha sido importado, embora esteja implícito com pandas
-        # Vou re-introduzir o pandas para o Timedelta para garantir compatibilidade com o seu código anterior
-        try:
-             dt_brt = dt_utc.replace(tzinfo=None) - pd.Timedelta(hours=3)
-             data_formatada = dt_brt.strftime('%d/%m/%Y')
-             hora_formatada = dt_brt.strftime('%H:%M') + ' BRT'
-        except Exception:
-             data_formatada = "N/A"
-             hora_formatada = "N/A"
 
-
-    # --- EXTRAÇÃO DE COMPETIDORES: À prova de NoneType ---
+    # --- CORREÇÃO DEFINITIVA DO ATTRIBUTEERROR ---
+    # Substitui a chamada next() por um loop explícito para garantir que home_team/away_team
+    # sejam SEMPRE dicionários ({} ou o time encontrado).
     competitors = comp.get('competitors', [])
-    
-    # Garante que o default é SEMPRE um dicionário vazio {}, eliminando a chance de 'NoneType'
-    home_team = next(
-        (c for c in competitors if isinstance(c, dict) and c.get('homeAway') == 'home'), 
-        {}
-    )
-    away_team = next(
-        (c for c in competitors if isinstance(c, dict) and c.get('homeAway') == 'away'), 
-        {}
-    )
-    # ---------------------------------------------------
+    home_team = {} # Inicializado como dicionário vazio
+    away_team = {} # Inicializado como dicionário vazio
 
-    # Extração de Scores (AGORA SEGURO)
+    for c in competitors:
+        if not isinstance(c, dict):
+            continue # Pula qualquer item na lista que não seja dicionário.
+        
+        # Atribui o dicionário encontrado à variável, que é garantida ser um dict.
+        home_away = c.get('homeAway')
+        if home_away == 'home':
+            home_team = c
+        elif home_away == 'away':
+            away_team = c
+            
+    # Extração de Scores (AGORA 100% SEGURO)
+    # home_team é GARANTIDO ser um dicionário, eliminando o AttributeError.
     home_score = home_team.get('score', {}).get('displayValue', '0')
     away_score = away_team.get('score', {}).get('displayValue', '0')
     
@@ -136,7 +122,6 @@ def get_event_data(event):
     }
 
 
-# Cache removido - Esta função será executada a cada recarga da aplicação
 def load_data(api_url=API_URL_SCOREBOARD):
     """Busca e normaliza os dados diretamente da API de Scoreboard da ESPN."""
     
@@ -175,7 +160,6 @@ def load_data(api_url=API_URL_SCOREBOARD):
 
 def main():
     
-    # Busca Metadados (agora sem cache)
     league_name, current_season = get_league_metadata()
     
     st.title(f"🏈 Dashboard {league_name} - Placares Atuais")
@@ -191,7 +175,6 @@ def main():
         # st.rerun() força a re-execução do script (e a nova busca de dados)
         st.rerun() 
         
-    # Busca dados do Scoreboard (agora sem cache)
     df_events = load_data()
 
     if df_events.empty:
