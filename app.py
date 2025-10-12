@@ -14,8 +14,8 @@ st.set_page_config(
 
 # --- 0. INJEÇÃO DE CSS CUSTOMIZADO PARA CENTRALIZAÇÃO E MARGENS ---
 
-# O CSS a seguir busca o bloco principal de conteúdo do Streamlit (classe .main) 
-# e o restringe a 80% da tela (max-width), centralizando-o com margin: auto.
+# O CSS a seguir busca o bloco principal de conteúdo do Streamlit (classe .block-container) 
+# e o restringe a 80% da tela (max-width), centralizando-o com margin: 0 auto.
 custom_css = """
 <style>
 /* Aplica-se ao container principal de conteúdo do Streamlit */
