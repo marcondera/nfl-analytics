@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 import requests 
 from dateutil.parser import isoparse 
-import matplotlib.pyplot as plt # Matplotlib para estabilidade
+import matplotlib.pyplot as plt 
 
 # Configuração da página
 st.set_page_config(
@@ -63,13 +63,30 @@ def get_event_data(event):
         status_type = comp.get('status', {}).get('type', {})
         status_en = status_type.get('description')
         
-        status_map = {
-            'Final': 'Finalizado',
-            'Final/OT': 'Finalizado (OT)',
-            'In Progress': 'Em Andamento',
-            'Scheduled': 'Agendado'
-        }
-        status_pt = status_map.get(status_en, status_en)
+        # --- FIX: LÓGICA DE STATUS MAIS ROBUSTA ---
+        status_state = status_type.get('state')
+        is_completed = status_type.get('completed', False)
+
+        if is_completed or status_state == 'post':
+            if 'OT' in status_en:
+                status_pt = 'Finalizado (OT)'
+            else:
+                status_pt = 'Finalizado'
+        elif status_state == 'in':
+            status_pt = 'Em Andamento'
+        elif status_state == 'pre':
+            status_pt = 'Agendado'
+        else:
+            # Fallback para o mapa de status conhecido
+            status_map = {
+                'Final': 'Finalizado',
+                'Final/OT': 'Finalizado (OT)',
+                'In Progress': 'Em Andamento',
+                'Scheduled': 'Agendado'
+            }
+            status_pt = status_map.get(status_en, status_en)
+        # --- FIM FIX LÓGICA DE STATUS ---
+
         
         detail_status_raw = comp.get('status', {}).get('detail')
         if detail_status_raw:
@@ -138,7 +155,7 @@ def get_event_data(event):
             'Jogo': event.get('name', 'N/A'),
             'Data': data_formatada,
             'Hora': hora_formatada,
-            'Status': status_pt,
+            'Status': status_pt, # Status traduzido e corrigido!
             'Casa': home_display_name,
             'Visitante': away_display_name,
             'Vencedor': winner_team,
@@ -195,6 +212,7 @@ def load_data(api_url=API_URL_EVENTS_2025):
 def process_for_win_loss_evolution(df_events):
     """Calcula as vitórias e derrotas acumuladas para cada time."""
     
+    # Este filtro agora deve funcionar corretamente!
     df_results = df_events[
         df_events['Status'].str.startswith('Finalizado', na=False)
     ].copy()
@@ -211,7 +229,6 @@ def process_for_win_loss_evolution(df_events):
         visitante = row['Visitante']
         vencedor = row['Vencedor']
         
-        # Atribuição de W/L (+1 para Vitoria, -1 para Derrota)
         if vencedor == casa:
             evolution_data.append({'Time': casa, 'Data_Jogo': row['Data_dt'], 'Delta': 1})
             evolution_data.append({'Time': visitante, 'Data_Jogo': row['Data_dt'], 'Delta': -1})
@@ -223,11 +240,8 @@ def process_for_win_loss_evolution(df_events):
     if df_evo.empty:
         return pd.DataFrame()
         
-    # Ordena e calcula o acumulado
     df_evo = df_evo.sort_values(by=['Time', 'Data_Jogo'])
     df_evo['Saldo Acumulado'] = df_evo.groupby('Time')['Delta'].cumsum()
-    
-    # Adiciona um índice de jogo sequencial
     df_evo['Total Jogos'] = df_evo.groupby('Time').cumcount() + 1
     
     return df_evo[['Time', 'Data_Jogo', 'Saldo Acumulado', 'Total Jogos']]
@@ -243,13 +257,10 @@ def plot_win_loss_evolution(df_evo, selected_teams):
         st.info("Nenhum time selecionado ou nenhum dado disponível.")
         return
     
-    # Cria a figura e o eixo do Matplotlib
     fig, ax = plt.subplots(figsize=(10, 6))
     
-    # Itera sobre os times selecionados para plotar as linhas
     for team in selected_teams:
         team_data = df_plot[df_plot['Time'] == team]
-        # Usa 'Total Jogos' no eixo X e 'Saldo Acumulado' no eixo Y
         ax.plot(
             team_data['Total Jogos'], 
             team_data['Saldo Acumulado'], 
@@ -258,22 +269,18 @@ def plot_win_loss_evolution(df_evo, selected_teams):
             linestyle='-'
         )
 
-    # Linha de base para 0
     ax.axhline(0, color='gray', linestyle='--') 
     
-    # Configuração do gráfico
     ax.set_title('Evolução do Saldo W-L (Vitórias - Derrotas)', fontsize=14)
     ax.set_xlabel('Jogos Disputados', fontsize=12)
     ax.set_ylabel('Saldo Acumulado (W - L)', fontsize=12)
     ax.grid(True, linestyle=':', alpha=0.6)
     ax.legend(title='Time', loc='upper left')
     
-    # Garante que os ticks do eixo X sejam inteiros (número de jogos)
     ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
 
-    # Exibe o gráfico no Streamlit
     st.pyplot(fig)
-    plt.close(fig) # Fecha a figura para liberar memória
+    plt.close(fig) 
 
 
 # --- 5. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
@@ -323,21 +330,18 @@ def main():
     
     df_evo = process_for_win_loss_evolution(df_events)
     
-    # CORREÇÃO CRÍTICA: Checagem de segurança (Resolve o KeyError)
     if df_evo.empty:
-        # Apenas mostra a mensagem se não houver dados
-        st.info("Não há dados de jogos finalizados na API para calcular o gráfico de evolução. O gráfico aparecerá automaticamente após o primeiro jogo finalizado.")
+        st.info("A API não retornou jogos finalizados. O gráfico aparecerá automaticamente com todos os times assim que os dados estiverem disponíveis.")
     else:
-        # Lógica de seleção (só executa se houver dados)
         all_teams = sorted(df_evo['Time'].unique().tolist())
         
-        # O ÚNICO AJUSTE: Define TODOS os times como padrão selecionado
+        # Seleciona TODOS os times por padrão, conforme solicitado
         default_teams = all_teams 
         
         selected_teams = st.sidebar.multiselect(
             "Selecione os Times para o Gráfico de Saldo W-L:",
             options=all_teams,
-            default=default_teams, # AGORA SELECIONA TODOS OS TIMES POR PADRÃO
+            default=default_teams, 
             key='team_selector_mpl'
         )
         
