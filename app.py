@@ -23,7 +23,9 @@ def get_event_data(event):
         return None
 
     # Mapeamento do Status (Tradução)
-    status_en = comp['status']['type']['description']
+    status_type = comp['status'].get('type', {})
+    status_en = status_type.get('description')
+    
     status_map = {
         'Final': 'Finalizado',
         'Final/OT': 'Finalizado (OT)',
@@ -57,12 +59,16 @@ def get_event_data(event):
     # Determina o Vencedor (apenas para jogos finalizados)
     winner_team = "A definir"
     if status_pt.startswith('Finalizado'):
-        if float(home_score) > float(away_score):
-            winner_team = home_team['team']['abbreviation']
-        elif float(away_score) > float(home_score):
-            winner_team = away_team['team']['abbreviation']
-        else:
-            winner_team = "Empate"
+        try:
+            # Garante que os scores sejam números para comparação
+            if float(home_score) > float(away_score):
+                winner_team = home_team['team']['abbreviation']
+            elif float(away_score) > float(home_score):
+                winner_team = away_team['team']['abbreviation']
+            else:
+                winner_team = "Empate"
+        except ValueError:
+            winner_team = "N/A"
 
     return {
         'Jogo': event.get('name', 'N/A'),
@@ -74,7 +80,8 @@ def get_event_data(event):
         'Visitante': away_team['team']['displayName'],
         'Score Visitante': away_score,
         'Vencedor': winner_team,
-        'Detalhe Status': comp['status']['detail']
+        # CORREÇÃO APLICADA: Usa .get('detail', 'N/A') para evitar KeyError em jogos Agendados
+        'Detalhe Status': comp['status'].get('detail', 'N/A')
     }
 
 
@@ -86,7 +93,11 @@ def load_data(file_path="events.json"):
         return pd.DataFrame()
 
     with open(file_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError:
+            st.error("Erro ao decodificar o JSON. Verifique a formatação do arquivo events.json.")
+            return pd.DataFrame()
 
     # Processa cada evento para extrair os dados
     events_data = [get_event_data(e) for e in data.get('events', [])]
@@ -136,6 +147,7 @@ def main():
     
     # 1. Jogos em Andamento
     st.header("🔴 Jogos Atuais (Em Andamento)")
+    # Filtra e organiza para mostrar os jogos mais recentes no topo
     df_in_progress = df_events[df_events['Status'] == 'Em Andamento'].sort_values(by='Detalhe Status', ascending=False)
     
     if not df_in_progress.empty:
@@ -150,11 +162,12 @@ def main():
 
     # 2. Próximos Jogos Agendados
     st.header("📅 Próximos Jogos Agendados")
+    # Filtra e organiza por data futura
     df_scheduled = df_events[df_events['Status'] == 'Agendado'].sort_values(by='Data')
     
     if not df_scheduled.empty:
         st.dataframe(
-            df_scheduled[['Jogo', 'Data', 'Hora', 'Detalhe Status', 'Casa', 'Visitante']],
+            df_scheduled[['Jogo', 'Data', 'Hora', 'Casa', 'Visitante']],
             hide_index=True,
             use_container_width=True
         )
@@ -165,11 +178,12 @@ def main():
 
     # 3. Resultados Recentes (Finalizados)
     st.header("✅ Resultados (Finalizados)")
-    df_finalized = df_events[df_events['Status'].str.startswith('Finalizado')].sort_values(by='Data', ascending=False)
+    # Filtra e organiza para mostrar os resultados mais recentes no topo
+    df_finalized = df_events[df_events['Status'].str.startswith('Finalizado', na=False)].sort_values(by='Data', ascending=False)
     
     if not df_finalized.empty:
         # Colunas customizadas para a tabela de resultados
-        results_df = df_finalized[['Data', 'Jogo', 'Vencedor', 'Score Casa', 'Score Visitante', 'Detalhe Status']].copy()
+        results_df = df_finalized[['Data', 'Jogo', 'Vencedor', 'Score Casa', 'Score Visitante']].copy()
         
         st.dataframe(
             results_df,
