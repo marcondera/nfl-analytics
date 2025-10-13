@@ -21,15 +21,17 @@ st.markdown("""
         color: #ffffff;
     }
     
-    /* **AJUSTE FINAL: BORDAS REMOVIDAS E FOCO NO ESPAÇAMENTO VERTICAL** */
+    /* **AJUSTE FINAL: BORDA ARREDONDADA E PADDING** */
     .game-card {
-        padding: 10px 0; /* Remove padding lateral, mantém vertical */
+        padding: 20px; /* Aumenta o espaçamento interno do card */
         margin-bottom: 35px; /* Espaço maior entre os jogos (vertical) */
-        /* **REMOÇÃO DA BORDA** */
-        /* border: 1px solid rgba(255, 255, 255, 0.2); */ 
-        border-radius: 5px;
+        /* Reintroduz a borda sutil e a arredonda */
+        border: 1px solid rgba(255, 255, 255, 0.25); 
+        border-radius: 10px; /* Bordas arredondadas (10px é um bom valor) */
         /* Garante que o conteúdo dentro da coluna Streamlit não fique muito estreito */
         width: 100%; 
+        /* Opcional: Adicionar um fundo levemente mais escuro para destaque */
+        background-color: rgba(255, 255, 255, 0.03);
     }
 
     /* DESTAQUE VENCEDOR/PERDEDOR */
@@ -82,8 +84,8 @@ st.markdown("""
         margin: auto;
     }
     
-    /* Adiciona margem lateral para empurrar o card dentro da coluna */
-    .st-emotion-cache-h4ytrb { /* Classe de coluna do Streamlit */
+    /* Mantém o espaçamento horizontal entre as colunas */
+    .st-emotion-cache-h4ytrb { 
         padding-left: 15px !important; 
         padding-right: 15px !important;
     }
@@ -195,8 +197,8 @@ def display_games(df, title, num_cols=4):
     rows = [df.iloc[i:i + num_cols] for i in range(0, len(df), num_cols)]
 
     for row_chunk in rows:
-        # **NOVIDADE: AUMENTANDO O ESPAÇAMENTO HORIZONTAL (GAP) ENTRE AS COLUNAS**
-        cols = st.columns(num_cols, gap="large") # 'medium' é o padrão. 'large' aumenta o espaçamento.
+        # Mantendo o gap large
+        cols = st.columns(num_cols, gap="large") 
         
         for i, (index, row) in enumerate(row_chunk.iterrows()):
             with cols[i]:
