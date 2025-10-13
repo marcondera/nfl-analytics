@@ -51,6 +51,11 @@ st.markdown("""
         margin-top: 5px;
         margin-bottom: 5px;
     }
+
+    /* Espaçamento vertical entre jogos */
+    .game-block {
+        margin-bottom: 20px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -147,7 +152,8 @@ def load_data(api_url):
         st.error("Erro ao carregar os dados da API. Verifique a URL e a conexão.")
         return pd.DataFrame()
 
-# --- EXIBIÇÃO SEM DIVS ---
+
+# --- EXIBIÇÃO COM ESPAÇAMENTO ---
 def display_games(df, title, num_cols=4):
     if df.empty:
         return
@@ -164,6 +170,8 @@ def display_games(df, title, num_cols=4):
 
         for col, (_, row) in zip(cols, chunk.iterrows()):
             with col:
+                st.markdown("<div class='game-block'>", unsafe_allow_html=True)
+
                 casa_nome_tag = f"<span>{row['Casa']}</span>"
                 visitante_nome_tag = f"<span>{row['Visitante']}</span>"
                 casa_score_tag = f"<span>{row['Score Casa']}</span>"
@@ -208,6 +216,8 @@ def display_games(df, title, num_cols=4):
                     st.markdown(f"<p class='status-discreto'>Início: {row['Data']}</p>", unsafe_allow_html=True)
                 elif status_jogo.startswith('Finalizado'):
                     st.markdown(f"<p class='status-discreto'>{status_jogo}</p>", unsafe_allow_html=True)
+
+                st.markdown("</div>", unsafe_allow_html=True)
 
 
 # --- MAIN ---
