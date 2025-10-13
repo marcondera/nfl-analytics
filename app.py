@@ -4,50 +4,73 @@ import requests
 from dateutil.parser import isoparse
 import math
 
-# **NOVIDADE: FORÇANDO O DARK MODE**
+# **NOVIDADE: FORÇANDO O DARK MODE E MELHORANDO A LEIBILIDADE/ESPAÇAMENTO**
 st.set_page_config(
     page_title="NFL Results Dashboard",
     layout="wide",
     initial_sidebar_state="collapsed",
-    # Configurações para forçar o tema escuro
     page_icon="🏈"
 )
 
-# Adiciona estilos customizados para forçar o dark mode e destacar o placar
+# Adiciona estilos customizados com maior espaçamento e fontes maiores
 st.markdown("""
 <style>
-    /* Força o tema escuro no Streamlit, garantindo consistência */
+    /* Força o tema escuro */
     .stApp {
         background-color: #0e1117; 
         color: #ffffff;
     }
-    /* Estilo para destacar o texto do vencedor em verde */
+    
+    /* **NOVIDADE: ESPAÇAMENTO ENTRE OS JOGOS** */
+    .game-card {
+        padding: 10px;
+        margin-bottom: 25px; /* Mais espaço abaixo de cada jogo */
+        border: 1px solid rgba(255, 255, 255, 0.1); /* Borda sutil para separar */
+        border-radius: 5px;
+    }
+
+    /* **NOVIDADE: DESTAQUE VENCEDOR/PERDEDOR** */
     .winner {
         color: #4CAF50; /* Verde */
         font-weight: bold;
     }
-    /* Alinhamento e tamanho do placar */
+    .loser {
+        color: #FF4B4B; /* Vermelho */
+        font-weight: normal;
+    }
+
+    /* **NOVIDADE: AUMENTO DE FONTES** */
     .score-display {
         text-align: center;
-        font-size: 2.5em; /* Maior placar */
+        font-size: 3.5em; /* Placar maior */
         font-weight: bold;
         margin: 5px 0;
     }
-    /* Alinhamento dos times */
     .team-names {
         text-align: center;
-        font-size: 1.1em;
+        font-size: 1.5em; /* Nome dos times maior */
         font-weight: 500;
         margin-bottom: 5px;
     }
-    /* Estilo para o detalhe do status 'Ao Vivo' */
+    
+    /* Detalhe do status 'Ao Vivo' */
     .live-detail {
-        font-size: small;
-        color: #FF4B4B; /* Cor vermelha para indicar 'Ao Vivo' */
+        font-size: 1.1em; /* Fonte um pouco maior */
+        color: #FF4B4B; 
         text-align: center;
         margin-top: -10px;
+        margin-bottom: 10px;
+    }
+    
+    /* **NOVIDADE: STATUS FINALIZADO DISCRETO** */
+    .status-discreto {
+        font-size: 0.9em;
+        color: #6c757d; /* Cor cinza discreta */
+        text-align: center;
+        margin-top: 5px;
         margin-bottom: 5px;
     }
+    
 </style>
 """, unsafe_allow_html=True)
 
@@ -137,20 +160,16 @@ def get_event_data(event):
             'Score Visitante': 0
         }
 
-def load_data(api_url=API_URL_EVENTS_2025):
-    # Uso st.cache_data internamente para gerenciar o cache da API
-    @st.cache_data(ttl=60) # Cache por 60 segundos
-    def fetch_data(url):
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            events = response.json().get('events', [])
-            return pd.DataFrame([get_event_data(event) for event in events])
-        except Exception:
-            st.error("Erro ao carregar os dados da API. Verifique a URL e a conexão.")
-            return pd.DataFrame()
-
-    return fetch_data(api_url)
+@st.cache_data(ttl=60)
+def load_data(api_url):
+    try:
+        response = requests.get(api_url)
+        response.raise_for_status()
+        events = response.json().get('events', [])
+        return pd.DataFrame([get_event_data(event) for event in events])
+    except Exception:
+        st.error("Erro ao carregar os dados da API. Verifique a URL e a conexão.")
+        return pd.DataFrame()
 
 def display_games(df, title, num_cols=4):
     st.header(title)
@@ -162,69 +181,77 @@ def display_games(df, title, num_cols=4):
         
         for i, (index, row) in enumerate(row_chunk.iterrows()):
             with cols[i]:
-                # Exibe o status principal
-                st.markdown(f"<p class='team-names'>**{row['Status']}**</p>", unsafe_allow_html=True)
+                # Início do card do jogo para aplicar o espaçamento
+                st.markdown("<div class='game-card'>", unsafe_allow_html=True)
+
+                # Prepara o nome e placar dos times com classes
+                casa_nome_tag = f"<span>{row['Casa']}</span>"
+                visitante_nome_tag = f"<span>{row['Visitante']}</span>"
+                casa_score_tag = f"<span>{row['Score Casa']}</span>"
+                visitante_score_tag = f"<span>{row['Score Visitante']}</span>"
                 
-                # Exibe o detalhe do status para jogos ao vivo
-                if row['Detalhe Status']:
-                    st.markdown(f"<p class='live-detail'>{row['Detalhe Status']}</p>", unsafe_allow_html=True)
+                status_jogo = row['Status']
                 
-                # Prepara o nome e placar dos times com formatação
-                casa_nome = row['Casa']
-                visitante_nome = row['Visitante']
-                casa_score = str(row['Score Casa'])
-                visitante_score = str(row['Score Visitante'])
-                
-                # **LÓGICA PARA APLICAR VERDE E NEGRITO NO VENCEDOR**
-                if row['Status'].startswith('Finalizado'):
-                    if row['Vencedor'] == casa_nome:
-                        casa_nome = f"<span class='winner'>{casa_nome}</span>"
-                        casa_score = f"<span class='winner'>{casa_score}</span>"
-                    elif row['Vencedor'] == visitante_nome:
-                        visitante_nome = f"<span class='winner'>{visitante_nome}</span>"
-                        visitante_score = f"<span class='winner'>{visitante_score}</span>"
+                # **LÓGICA PARA APLICAR VERDE (VENCEDOR) E VERMELHO (PERDEDOR)**
+                if status_jogo.startswith('Finalizado'):
+                    if row['Vencedor'] == row['Casa']:
+                        casa_nome_tag = f"<span class='winner'>{row['Casa']}</span>"
+                        casa_score_tag = f"<span class='winner'>{row['Score Casa']}</span>"
+                        visitante_nome_tag = f"<span class='loser'>{row['Visitante']}</span>"
+                        visitante_score_tag = f"<span class='loser'>{row['Score Visitante']}</span>"
+                    elif row['Vencedor'] == row['Visitante']:
+                        visitante_nome_tag = f"<span class='winner'>{row['Visitante']}</span>"
+                        visitante_score_tag = f"<span class='winner'>{row['Score Visitante']}</span>"
+                        casa_nome_tag = f"<span class='loser'>{row['Casa']}</span>"
+                        casa_score_tag = f"<span class='loser'>{row['Score Casa']}</span>"
 
 
-                # Exibição dos Nomes (separado para controle)
-                st.markdown(f"<p class='team-names'>{casa_nome} vs {visitante_nome}</p>", unsafe_allow_html=True)
+                # Exibição dos Nomes
+                st.markdown(f"<p class='team-names'>{casa_nome_tag} vs {visitante_nome_tag}</p>", unsafe_allow_html=True)
 
+                # Detalhe do status para jogos ao vivo (acima do placar)
+                if status_jogo == 'Em Andamento':
+                    st.markdown(f"<p class='live-detail'>🔴 {row['Detalhe Status']}</p>", unsafe_allow_html=True)
+                
                 # Layout para Logos e Placar
                 col_home, col_score, col_away = st.columns([1, 2, 1])
                 
                 with col_home:
-                    st.image(get_logo_url(row['Casa']), width=50)
+                    st.image(get_logo_url(row['Casa']), width=60) # Logos um pouco maiores
                 
                 with col_score:
-                    # Exibição do Placar com a formatação CSS 'score-display'
-                    st.markdown(f"<p class='score-display'>{casa_score} - {visitante_score}</p>", unsafe_allow_html=True)
+                    # Exibição do Placar
+                    st.markdown(f"<p class='score-display'>{casa_score_tag} - {visitante_score_tag}</p>", unsafe_allow_html=True)
                 
                 with col_away:
-                    st.image(get_logo_url(row['Visitante']), width=50)
+                    st.image(get_logo_url(row['Visitante']), width=60)
 
-                # Informação adicional (Data)
-                if row['Status'] == 'Agendado':
-                    st.caption(f"Início: {row['Data']}")
+                # Informações discretas no rodapé
+                if status_jogo == 'Agendado':
+                    st.markdown(f"<p class='status-discreto'>Início: {row['Data']}</p>", unsafe_allow_html=True)
+                elif status_jogo.startswith('Finalizado'):
+                    # **NOVIDADE: STATUS FINALIZADO DISCRETO**
+                    st.markdown(f"<p class='status-discreto'>{status_jogo}</p>", unsafe_allow_html=True)
                 
-                st.markdown("---") # Separador para cada jogo dentro da coluna
-
+                st.markdown("</div>", unsafe_allow_html=True) # Fim do card do jogo
+                
+                # st.markdown("---") # Removido o separador padrão, o 'game-card' com margem faz o papel
 
 def main():
     st.title("🏈 NFL Results Dashboard")
     st.markdown("### Informações atualizadas sobre jogos da NFL (Temporada 2025)")
 
-    # Adiciona um botão para recarregar os dados, que limpa o cache
     if st.button('🔄 Recarregar Dados'):
         st.cache_data.clear()
         st.rerun()
 
-    df_events = load_data()
+    df_events = load_data(API_URL_EVENTS_2025)
     if df_events.empty:
         st.warning("Nenhum dado disponível. Verifique a API.")
         return
 
     df_in_progress = df_events[df_events['Status'] == 'Em Andamento']
     df_scheduled = df_events[df_events['Status'] == 'Agendado']
-    # O filtro de Finalizado foi simplificado, já que não precisamos do texto 'Vencedor'
     df_finalized = df_events[df_events['Status'].str.startswith('Finalizado')] 
 
     if not df_in_progress.empty:
