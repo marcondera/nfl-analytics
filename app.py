@@ -43,7 +43,7 @@ def get_event_data(event):
     data_formatada = "N/A"
     status_pt = "N/A"
     winner_team_abbr = "A definir"
-    detail_status = "N/A"
+    resultado = "N/A"
     home_team_abbr = "N/A"
     away_team_abbr = "N/A"
 
@@ -73,23 +73,23 @@ def get_event_data(event):
         else:
             status_pt = status_type.get('description', 'Status Desconhecido')
 
-        detail_status = status.get('detail', status_type.get('shortDetail', 'N/A'))
+        resultado = status.get('detail', status_type.get('shortDetail', 'N/A'))
 
         if status_pt == 'Em Andamento':
             clock = status.get('displayClock', '')
             period_name = get_period_name(status.get('period', 0))
             if clock and period_name:
-                detail_status = f"{period_name} - {clock}"
+                resultado = f"{period_name} - {clock}"
             else:
-                detail_status = status_type.get('shortDetail', 'Ao Vivo')
+                resultado = status_type.get('shortDetail', 'Ao Vivo')
 
         elif status_pt == 'Finalizado' or status_pt == 'Finalizado (Prorrogação)':
-            detail_status = status_type.get('shortDetail', 'Final')
+            resultado = status_type.get('shortDetail', 'Final')
 
         elif status_pt == 'Agendado':
             dt_utc = isoparse(date_iso)
             dt_brt = dt_utc - pd.Timedelta(hours=3)
-            detail_status = dt_brt.strftime('%H:%M BRT')
+            resultado = dt_brt.strftime('%H:%M BRT')
 
         competitors = comp.get('competitors', [])
         home_team = {}
@@ -129,7 +129,7 @@ def get_event_data(event):
             'Vencedor': winner_team_abbr,
             'Score Casa': home_score,
             'Score Visitante': away_score,
-            'Detalhe Status': detail_status,
+            'Resultado': resultado,
         }
 
     except Exception as e:
@@ -137,7 +137,7 @@ def get_event_data(event):
             'Jogo': 'Erro de Estrutura de Dados', 'Data': 'N/A',
             'Status': 'ERRO', 'Casa': 'ERRO', 'Visitante': 'ERRO',
             'Vencedor': 'N/A', 'Score Casa': 'N/A', 'Score Visitante': 'N/A',
-            'Detalhe Status': 'Falha na extração',
+            'Resultado': 'Falha na extração',
         }
 
 def load_data(api_url=API_URL_EVENTS_2025):
@@ -184,7 +184,7 @@ def display_games(df):
         with col2:
             st.write(highlight_winner(row['Visitante'], row['Vencedor'], row['Score Visitante'] if row['Status'] != 'Agendado' else '-', is_draw), unsafe_allow_html=True)
             st.image(get_logo_url(row['Visitante']), width=50)
-        st.write(f"Status: {row['Status']} | Detalhe: {row['Detalhe Status']}")
+        st.write(f"Status: {row['Status']} | Resultado: {row['Resultado']}")
         if row['Status'].startswith("Finalizado"):
             if is_draw:
                 st.info("Empate!")
@@ -198,11 +198,11 @@ def display_season_history_table(df_history):
             return ''
         return 'color: green; font-weight:bold' if val == winner else ''
     df_table = df_history[
-        ['Data', 'Casa', 'Score Casa', 'Visitante', 'Score Visitante', 'Vencedor', 'Detalhe Status', 'Jogo']
+        ['Data', 'Casa', 'Score Casa', 'Visitante', 'Score Visitante', 'Vencedor', 'Resultado', 'Jogo']
     ].rename(columns={
         'Score Casa': 'Placar Casa',
         'Score Visitante': 'Placar Fora',
-        'Detalhe Status': 'Status',
+        'Resultado': 'Resultado',
         'Visitante': 'Time Visitante',
         'Casa': 'Time Casa'
     })
@@ -215,7 +215,7 @@ def display_season_history_table(df_history):
             color_winner(row['Time Visitante'], row['Vencedor'], row['Vencedor']=='Empate'),
             '',  # Placar Fora
             'color: green; font-weight:bold' if row['Vencedor'] not in ['N/A', 'Empate'] else '',
-            '',  # Status
+            '',  # Resultado
             ''   # Jogo
         ], axis=1)
     st.dataframe(styled_df, use_container_width=True, hide_index=True)
