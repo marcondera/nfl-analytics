@@ -160,7 +160,7 @@ def load_data(api_url):
         st.error("Erro ao carregar os dados da API. Verifique a URL e a conexão.")
         return pd.DataFrame()
 
-
+# --- FUNÇÃO DE EXIBIÇÃO SEM BORDAS VAZIAS ---
 def display_games(df, title, num_cols=4):
     if df.empty:
         return
@@ -169,52 +169,58 @@ def display_games(df, title, num_cols=4):
     rows = [df.iloc[i:i + num_cols] for i in range(0, len(df), num_cols)]
 
     for row_chunk in rows:
-        cols = st.columns(num_cols, gap="large")
-        for i, (index, row) in enumerate(row_chunk.iterrows()):
+        valid_games = row_chunk.dropna(subset=["Casa", "Visitante"])
+        if valid_games.empty:
+            continue
+
+        cols = st.columns(len(valid_games), gap="large")
+
+        for i, (index, row) in enumerate(valid_games.iterrows()):
+            if row['Casa'] == "ERRO" or row['Visitante'] == "ERRO":
+                continue
+
             with cols[i]:
-                # Exibe apenas se o jogo tem times definidos
-                if row['Casa'] != "ERRO" and row['Visitante'] != "ERRO":
-                    st.markdown("<div class='game-card'>", unsafe_allow_html=True)
+                st.markdown("<div class='game-card'>", unsafe_allow_html=True)
 
-                    casa_nome_tag = f"<span>{row['Casa']}</span>"
-                    visitante_nome_tag = f"<span>{row['Visitante']}</span>"
-                    casa_score_tag = f"<span>{row['Score Casa']}</span>"
-                    visitante_score_tag = f"<span>{row['Score Visitante']}</span>"
+                casa_nome_tag = f"<span>{row['Casa']}</span>"
+                visitante_nome_tag = f"<span>{row['Visitante']}</span>"
+                casa_score_tag = f"<span>{row['Score Casa']}</span>"
+                visitante_score_tag = f"<span>{row['Score Visitante']}</span>"
 
-                    status_jogo = row['Status']
-                    if status_jogo.startswith('Finalizado'):
-                        if row['Vencedor'] == row['Casa']:
-                            casa_nome_tag = f"<span class='winner'>{row['Casa']}</span>"
-                            casa_score_tag = f"<span class='winner'>{row['Score Casa']}</span>"
-                            visitante_nome_tag = f"<span class='loser'>{row['Visitante']}</span>"
-                            visitante_score_tag = f"<span class='loser'>{row['Score Visitante']}</span>"
-                        elif row['Vencedor'] == row['Visitante']:
-                            visitante_nome_tag = f"<span class='winner'>{row['Visitante']}</span>"
-                            visitante_score_tag = f"<span class='winner'>{row['Score Visitante']}</span>"
-                            casa_nome_tag = f"<span class='loser'>{row['Casa']}</span>"
-                            casa_score_tag = f"<span class='loser'>{row['Score Casa']}</span>"
+                status_jogo = row['Status']
+                if status_jogo.startswith('Finalizado'):
+                    if row['Vencedor'] == row['Casa']:
+                        casa_nome_tag = f"<span class='winner'>{row['Casa']}</span>"
+                        casa_score_tag = f"<span class='winner'>{row['Score Casa']}</span>"
+                        visitante_nome_tag = f"<span class='loser'>{row['Visitante']}</span>"
+                        visitante_score_tag = f"<span class='loser'>{row['Score Visitante']}</span>"
+                    elif row['Vencedor'] == row['Visitante']:
+                        visitante_nome_tag = f"<span class='winner'>{row['Visitante']}</span>"
+                        visitante_score_tag = f"<span class='winner'>{row['Score Visitante']}</span>"
+                        casa_nome_tag = f"<span class='loser'>{row['Casa']}</span>"
+                        casa_score_tag = f"<span class='loser'>{row['Score Casa']}</span>"
 
-                    st.markdown(f"<p class='team-names'>{casa_nome_tag} vs {visitante_nome_tag}</p>", unsafe_allow_html=True)
+                st.markdown(f"<p class='team-names'>{casa_nome_tag} vs {visitante_nome_tag}</p>", unsafe_allow_html=True)
 
-                    if status_jogo == 'Em Andamento':
-                        st.markdown(f"<p class='live-detail'>🔴 {row['Detalhe Status']}</p>", unsafe_allow_html=True)
+                if status_jogo == 'Em Andamento':
+                    st.markdown(f"<p class='live-detail'>🔴 {row['Detalhe Status']}</p>", unsafe_allow_html=True)
 
-                    col_home, col_score, col_away = st.columns([1, 2, 1])
-                    with col_home:
-                        st.image(get_logo_url(row['Casa']), width=60)
-                    with col_score:
-                        st.markdown(f"<p class='score-display'>{casa_score_tag} - {visitante_score_tag}</p>", unsafe_allow_html=True)
-                    with col_away:
-                        st.image(get_logo_url(row['Visitante']), width=60)
+                col_home, col_score, col_away = st.columns([1, 2, 1])
+                with col_home:
+                    st.image(get_logo_url(row['Casa']), width=60)
+                with col_score:
+                    st.markdown(f"<p class='score-display'>{casa_score_tag} - {visitante_score_tag}</p>", unsafe_allow_html=True)
+                with col_away:
+                    st.image(get_logo_url(row['Visitante']), width=60)
 
-                    if status_jogo == 'Agendado':
-                        st.markdown(f"<p class='status-discreto'>Início: {row['Data']}</p>", unsafe_allow_html=True)
-                    elif status_jogo.startswith('Finalizado'):
-                        st.markdown(f"<p class='status-discreto'>{status_jogo}</p>", unsafe_allow_html=True)
+                if status_jogo == 'Agendado':
+                    st.markdown(f"<p class='status-discreto'>Início: {row['Data']}</p>", unsafe_allow_html=True)
+                elif status_jogo.startswith('Finalizado'):
+                    st.markdown(f"<p class='status-discreto'>{status_jogo}</p>", unsafe_allow_html=True)
 
-                    st.markdown("</div>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
-
+# --- MAIN ---
 def main():
     st.title("🏈 NFL Results Dashboard")
     st.markdown("### Informações atualizadas sobre jogos da NFL (Temporada 2025)")
