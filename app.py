@@ -21,31 +21,16 @@ st.markdown("""
         color: #ffffff;
     }
     
-    /* **AJUSTE FINAL: BORDA E ESPAÇAMENTO DO CARD** */
+    /* **CORREÇÃO FINAL: GARANTINDO QUE A BORDA ENVOLVA TODOS OS WIDGETS** */
     .game-card {
         padding: 10px; 
         margin-bottom: 40px; /* Espaço maior entre os jogos */
         border: 1px solid rgba(255, 255, 255, 0.2); /* Borda sutil */
         border-radius: 5px;
         width: 100%; 
-        box-sizing: border-box; /* Garante que padding e border não aumentem a largura */
-        text-align: center; /* Centraliza todo o conteúdo do card */
+        box-sizing: border-box;
     }
-
-    /* Layout Flex para centralizar Nomes, Placar e Logos */
-    .game-content {
-        display: flex;
-        align-items: center;
-        justify-content: space-between; /* Espaça logos nas laterais */
-        padding: 5px 0;
-    }
-
-    /* Estilos para o centro (Nomes e Placar) */
-    .center-info {
-        flex-grow: 1; /* Ocupa o máximo de espaço possível */
-        padding: 0 10px;
-    }
-
+    
     /* DESTAQUE VENCEDOR/PERDEDOR */
     .winner {
         color: #4CAF50; /* Verde */
@@ -86,13 +71,15 @@ st.markdown("""
         font-size: 0.9em;
         color: #6c757d; 
         text-align: center;
-        margin: 5px 0 0 0;
+        margin: 10px 0 0 0; /* Aumenta a margem superior para separar o status das logos */
     }
-
-    /* Ajuste para as imagens (Logos) */
-    .logo {
-        width: 60px; /* Tamanho do logo */
-        height: auto;
+    
+    /* Centraliza as imagens dentro de suas colunas */
+    .stImage {
+        text-align: center;
+    }
+    .stImage > img {
+        margin: auto;
     }
     
 </style>
@@ -200,11 +187,13 @@ def display_games(df, title, num_cols=4):
     rows = [df.iloc[i:i + num_cols] for i in range(0, len(df), num_cols)]
 
     for row_chunk in rows:
-        # Cria as colunas Streamlit para o layout de 4 times
         cols = st.columns(num_cols)
         
         for i, (index, row) in enumerate(row_chunk.iterrows()):
             with cols[i]:
+                # **NOVO ENCAPSULAMENTO:** Abrimos o Card. TUDO que vier a seguir deve estar visualmente dentro dele.
+                st.markdown("<div class='game-card'>", unsafe_allow_html=True)
+
                 # 1. Lógica para aplicar cores e negrito
                 casa_nome = row['Casa']
                 visitante_nome = row['Visitante']
@@ -234,49 +223,34 @@ def display_games(df, title, num_cols=4):
                     casa_score_tag = f"<span>{casa_score}</span>"
                     visitante_score_tag = f"<span>{visitante_score}</span>"
 
-                # 2. Monta a string HTML completa (PLANTILLA)
-                
-                # A. Nomes e Placar (Centro)
-                center_content = f"""
-                    <div class='center-info'>
-                        <p class='team-names'>{casa_nome_tag} vs {visitante_nome_tag}</p>
-                        <p class='score-display'>{casa_score_tag} - {visitante_score_tag}</p>
-                    </div>
-                """
-                
-                # B. Logos
-                logo_casa_tag = f"<img src='{get_logo_url(row['Casa'])}' class='logo' />"
-                logo_visitante_tag = f"<img src='{get_logo_url(row['Visitante'])}' class='logo' />"
+                # 2. Exibição dos Nomes e Placar (via markdown)
+                st.markdown(f"<p class='team-names'>{casa_nome_tag} vs {visitante_nome_tag}</p>", unsafe_allow_html=True)
 
-                # C. Detalhe Ao Vivo
-                live_detail_tag = f"<p class='live-detail'>🔴 {row['Detalhe Status']}</p>" if status_jogo == 'Em Andamento' else ""
+                # Detalhe do status para jogos ao vivo
+                if status_jogo == 'Em Andamento':
+                    st.markdown(f"<p class='live-detail'>🔴 {row['Detalhe Status']}</p>", unsafe_allow_html=True)
+                
+                st.markdown(f"<p class='score-display'>{casa_score_tag} - {visitante_score_tag}</p>", unsafe_allow_html=True)
+                
+                
+                # 3. Layout para Logos (Usando st.columns e st.image)
+                col_home, col_away = st.columns([1, 1])
+                
+                with col_home:
+                    # st.image DEVE ser usado para renderizar a imagem corretamente
+                    st.image(get_logo_url(row['Casa']), width=60)
+                
+                with col_away:
+                    st.image(get_logo_url(row['Visitante']), width=60)
 
-                # D. Status Discreto
-                status_discreto_tag = ""
+                # 4. Informações discretas no rodapé (Status Finalizado/Agendado)
                 if status_jogo == 'Agendado':
-                    status_discreto_tag = f"<p class='status-discreto'>Início: {row['Data']}</p>"
+                    st.markdown(f"<p class='status-discreto'>Início: {row['Data']}</p>", unsafe_allow_html=True)
                 elif status_jogo.startswith('Finalizado'):
-                    status_discreto_tag = f"<p class='status-discreto'>{status_jogo}</p>"
-
-                # 3. Encapsula TUDO no Card (Usando Flexbox para o layout horizontal)
+                    st.markdown(f"<p class='status-discreto'>{status_jogo}</p>", unsafe_allow_html=True)
                 
-                html_card_final = f"""
-                <div class='game-card'>
-                    <div class='game-content'>
-                        <div>{logo_casa_tag}</div>
-
-                        {center_content}
-
-                        <div>{logo_visitante_tag}</div>
-                    </div>
-                    
-                    {live_detail_tag}
-                    {status_discreto_tag}
-                </div>
-                """
-                
-                # 4. Renderiza o Card completo na coluna Streamlit
-                st.markdown(html_card_final, unsafe_allow_html=True)
+                # 5. Fechando o Card
+                st.markdown("</div>", unsafe_allow_html=True)
 
 
 def main():
