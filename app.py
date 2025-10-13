@@ -23,14 +23,14 @@ st.markdown("""
     
     /* **AJUSTE FINAL: BORDA ARREDONDADA E FUNDO MAIS CLARO** */
     .game-card {
-        padding: 20px; /* Aumenta o espaçamento interno para dar respiro */
+        padding: 20px; /* Aumenta o espaçamento interno do card */
         margin-bottom: 35px; /* Espaço entre as linhas de jogos (vertical) */
         
         /* Aplica a borda arredondada */
-        border: 1px solid rgba(255, 255, 255, 0.4); /* Borda sutil, mas visível */
+        border: 1px solid rgba(255, 255, 255, 0.4); /* Borda mais visível */
         border-radius: 10px; /* Bordas mais arredondadas */
         
-        /* CORREÇÃO: Cor de fundo para destacar o card do fundo da página */
+        /* Cor de fundo para destacar o card do fundo da página */
         background-color: #1c212a; 
         
         width: 100%; 
@@ -216,4 +216,64 @@ def display_games(df, title, num_cols=4):
                         visitante_nome_tag = f"<span class='loser'>{row['Visitante']}</span>"
                         visitante_score_tag = f"<span class='loser'>{row['Score Visitante']}</span>"
                     elif row['Vencedor'] == row['Visitante']:
-                        visitante_nome
+                        visitante_nome_tag = f"<span class='winner'>{row['Visitante']}</span>"
+                        visitante_score_tag = f"<span class='winner'>{row['Score Visitante']}</span>"
+                        casa_nome_tag = f"<span class='loser'>{row['Casa']}</span>"
+                        casa_score_tag = f"<span class='loser'>{row['Score Casa']}</span>"
+
+
+                # 1. Exibição dos Nomes (Dentro do Card)
+                st.markdown(f"<p class='team-names'>{casa_nome_tag} vs {visitante_nome_tag}</p>", unsafe_allow_html=True)
+
+                # 2. Detalhe do status para jogos ao vivo
+                if status_jogo == 'Em Andamento':
+                    st.markdown(f"<p class='live-detail'>🔴 {row['Detalhe Status']}</p>", unsafe_allow_html=True)
+                
+                # 3. Layout para Logos e Placar (Sub-colunas dentro da Coluna principal)
+                col_home, col_score, col_away = st.columns([1, 2, 1])
+                
+                with col_home:
+                    st.image(get_logo_url(row['Casa']), width=60)
+                
+                with col_score:
+                    st.markdown(f"<p class='score-display'>{casa_score_tag} - {visitante_score_tag}</p>", unsafe_allow_html=True)
+                
+                with col_away:
+                    st.image(get_logo_url(row['Visitante']), width=60)
+
+                # 4. Informações discretas no rodapé
+                if status_jogo == 'Agendado':
+                    st.markdown(f"<p class='status-discreto'>Início: {row['Data']}</p>", unsafe_allow_html=True)
+                elif status_jogo.startswith('Finalizado'):
+                    st.markdown(f"<p class='status-discreto'>{status_jogo}</p>", unsafe_allow_html=True)
+                
+                # **FECHANDO O CARD DENTRO DA COLUNA**
+                st.markdown("</div>", unsafe_allow_html=True) 
+
+
+def main():
+    st.title("🏈 NFL Results Dashboard")
+    st.markdown("### Informações atualizadas sobre jogos da NFL (Temporada 2025)")
+
+    if st.button('🔄 Recarregar Dados'):
+        st.cache_data.clear()
+        st.rerun()
+
+    df_events = load_data(API_URL_EVENTS_2025)
+    if df_events.empty:
+        st.warning("Nenhum dado disponível. Verifique a API.")
+        return
+
+    df_in_progress = df_events[df_events['Status'] == 'Em Andamento']
+    df_scheduled = df_events[df_events['Status'] == 'Agendado']
+    df_finalized = df_events[df_events['Status'].str.startswith('Finalizado')] 
+
+    if not df_in_progress.empty:
+        display_games(df_in_progress, "🔴 Jogos Ao Vivo", num_cols=4)
+    if not df_scheduled.empty:
+        display_games(df_scheduled, "⏳ Próximos Jogos", num_cols=4)
+    if not df_finalized.empty:
+        display_games(df_finalized, "✅ Resultados Recentes", num_cols=4)
+
+if __name__ == '__main__':
+    main()
