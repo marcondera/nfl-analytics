@@ -27,7 +27,6 @@ LOGO_MAP = {
 
 def get_logo_url(abbreviation):
     abbr = LOGO_MAP.get(abbreviation.upper(), abbreviation.lower())
-    # Para evitar HTML, apenas devolve a URL, mas não faz renderização como <img>
     return f"https://a.espncdn.com/i/teamlogos/nfl/500/{abbr}.png"
 
 # --- 2. FUNÇÕES DE PROCESSAMENTO DE DADOS ---
@@ -164,27 +163,40 @@ def load_data(api_url=API_URL_EVENTS_2025):
     df = pd.DataFrame(events_data)
     return df
 
-# --- 3. FUNÇÕES DE RENDERIZAÇÃO SIMPLES (SEM HTML/CSS) ---
+# --- 3. FUNÇÕES DE RENDERIZAÇÃO ---
+
+def highlight_winner(team, winner, score, is_draw):
+    if is_draw:
+        return f"**{team}** (Empate) — **{score}**"
+    elif team == winner:
+        return f":green[**{team}**] — :green[**{score}**]"
+    else:
+        return f"{team} — {score}"
 
 def display_games(df):
     for idx, row in df.iterrows():
         st.subheader(f"{row['Jogo']}")
+        is_draw = row['Vencedor'] == 'Empate'
         col1, col2 = st.columns(2)
         with col1:
-            st.write(f"**Time Casa:** {row['Casa']}")
+            st.write(highlight_winner(row['Casa'], row['Vencedor'], row['Score Casa'] if row['Status'] != 'Agendado' else '-', is_draw), unsafe_allow_html=True)
             st.image(get_logo_url(row['Casa']), width=50)
-            st.write(f"**Placar:** {row['Score Casa'] if row['Status'] != 'Agendado' else '-'}")
         with col2:
-            st.write(f"**Time Visitante:** {row['Visitante']}")
+            st.write(highlight_winner(row['Visitante'], row['Vencedor'], row['Score Visitante'] if row['Status'] != 'Agendado' else '-', is_draw), unsafe_allow_html=True)
             st.image(get_logo_url(row['Visitante']), width=50)
-            st.write(f"**Placar:** {row['Score Visitante'] if row['Status'] != 'Agendado' else '-'}")
-
         st.write(f"Status: {row['Status']} | Detalhe: {row['Detalhe Status']}")
         if row['Status'].startswith("Finalizado"):
-            st.info(f"Vencedor: {row['Vencedor']}")
+            if is_draw:
+                st.info("Empate!")
+            else:
+                st.info(f":green[Vencedor: **{row['Vencedor']}**]")
         st.write("---")
 
 def display_season_history_table(df_history):
+    def color_winner(val, winner, empate):
+        if empate or pd.isna(val):
+            return ''
+        return 'color: green; font-weight:bold' if val == winner else ''
     df_table = df_history[
         ['Data', 'Casa', 'Score Casa', 'Visitante', 'Score Visitante', 'Vencedor', 'Detalhe Status', 'Jogo']
     ].rename(columns={
@@ -194,12 +206,19 @@ def display_season_history_table(df_history):
         'Visitante': 'Time Visitante',
         'Casa': 'Time Casa'
     })
-
-    st.dataframe(
-        df_table,
-        use_container_width=True,
-        hide_index=True
-    )
+    # Aplica destaque na coluna do vencedor e nos placares
+    styled_df = df_table.style.apply(
+        lambda row: [
+            color_winner(row['Time Casa'], row['Vencedor'], row['Vencedor']=='Empate'),
+            '',  # Placar Casa
+            '',  # Data
+            color_winner(row['Time Visitante'], row['Vencedor'], row['Vencedor']=='Empate'),
+            '',  # Placar Fora
+            'color: green; font-weight:bold' if row['Vencedor'] not in ['N/A', 'Empate'] else '',
+            '',  # Status
+            ''   # Jogo
+        ], axis=1)
+    st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 # --- 4. LAYOUT DO DASHBOARD STREAMLIT (MAIN) ---
 
@@ -213,32 +232,33 @@ def main():
         return
 
     # --- JOGOS AO VIVO (EM ANDAMENTO) ---
-    st.header("🔴 Ao Vivo")
     df_in_progress = df_events[df_events['Status'] == 'Em Andamento'].sort_values(by='Data', ascending=False)
-    if not df_in_progress.empty:
-        display_games(df_in_progress)
-    else:
-        st.info("Nenhum jogo em andamento no momento.")
-
-    # --- RESULTADOS FINAIS ---
-    st.header("✅ Resultados Recentes")
-    df_finalized = df_events[
-        df_events['Status'].str.startswith('Finalizado', na=False)
-    ].sort_values(by='Data', ascending=False)
-    if not df_finalized.empty:
-        display_games(df_finalized.head(9))
-    else:
-        st.info("Nenhum resultado finalizado encontrado.")
-
-    # --- JOGOS AGENDADOS ---
-    st.header("⏳ Próximos Jogos")
     df_scheduled = df_events[
         df_events['Status'] == 'Agendado'
     ].sort_values(by='Data', ascending=True)
-    if not df_scheduled.empty:
-        display_games(df_scheduled)
+    df_finalized = df_events[
+        df_events['Status'].str.startswith('Finalizado', na=False)
+    ].sort_values(by='Data', ascending=False)
+
+    if not df_in_progress.empty:
+        st.header("🔴 Ao Vivo")
+        display_games(df_in_progress)
+        st.header("⏳ Próximos Jogos")
+        if not df_scheduled.empty:
+            display_games(df_scheduled)
+        else:
+            st.info("Nenhum jogo agendado nos dados fornecidos.")
     else:
-        st.info("Nenhum jogo agendado nos dados fornecidos.")
+        st.header("⏳ Próximos Jogos")
+        if not df_scheduled.empty:
+            display_games(df_scheduled)
+        else:
+            st.info("Nenhum jogo agendado nos dados fornecidos.")
+        st.header("✅ Resultados Recentes")
+        if not df_finalized.empty:
+            display_games(df_finalized.head(9))
+        else:
+            st.info("Nenhum resultado finalizado encontrado.")
 
     # --- HISTÓRICO COMPLETO DA TEMPORADA (TABELA) ---
     st.header("📚 Histórico Completo da Temporada")
