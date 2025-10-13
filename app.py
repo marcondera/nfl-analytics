@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 from dateutil.parser import isoparse
+from datetime import datetime, timedelta
 
 # --- CONFIGURAÇÃO DO APP ---
 st.set_page_config(
@@ -52,9 +53,15 @@ st.markdown("""
         margin-bottom: 5px;
     }
 
-    /* Espaçamento vertical entre jogos */
+    /* Espaçamento maior entre jogos */
     .game-block {
-        margin-bottom: 20px;
+        margin-bottom: 40px;
+    }
+
+    /* Destaque na tabela */
+    .dataframe td {
+        text-align: center;
+        font-size: 0.95em;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -89,21 +96,19 @@ def get_event_data(event):
         status_type = status.get('type', {})
         status_text = str(status_type).lower()
 
+        # --- Status unificado ---
         status_pt = 'Status Desconhecido'
         detalhe_status = ''
 
         if 'final' in status_text:
             status_pt = 'Finalizado (Prorrogação)' if 'ot' in status_text else 'Finalizado'
         elif status_type.get('state') == 'in':
-            status_pt = 'Em Andamento'
             clock = status.get('displayClock', '0:00')
             period = status.get('period', 1)
-            period_name = get_period_name(period)
-            detalhe_status = f"{clock} restantes no {period_name}"
+            status_pt = f"Em Andamento – {clock} restantes no {get_period_name(period)}"
         elif status_type.get('state') == 'pre':
             status_pt = 'Agendado'
-
-        if status_pt == 'Status Desconhecido':
+        else:
             status_pt = status_type.get('description', 'Status Desconhecido')
 
         competitors = comp.get('competitors', [])
@@ -121,7 +126,6 @@ def get_event_data(event):
             'Jogo': event.get('name', 'N/A'),
             'Data': data_formatada,
             'Status': status_pt,
-            'Detalhe Status': detalhe_status,
             'Casa': home_abbr,
             'Visitante': away_abbr,
             'Vencedor': winner,
@@ -133,7 +137,6 @@ def get_event_data(event):
             'Jogo': 'Erro ao carregar',
             'Data': 'N/A',
             'Status': 'ERRO',
-            'Detalhe Status': '',
             'Casa': 'ERRO',
             'Visitante': 'ERRO',
             'Vencedor': 'N/A',
@@ -152,8 +155,7 @@ def load_data(api_url):
         st.error("Erro ao carregar os dados da API. Verifique a URL e a conexão.")
         return pd.DataFrame()
 
-
-# --- EXIBIÇÃO COM ESPAÇAMENTO ---
+# --- EXIBIÇÃO ---
 def display_games(df, title, num_cols=4):
     if df.empty:
         return
@@ -177,8 +179,7 @@ def display_games(df, title, num_cols=4):
                 casa_score_tag = f"<span>{row['Score Casa']}</span>"
                 visitante_score_tag = f"<span>{row['Score Visitante']}</span>"
 
-                status_jogo = row['Status']
-                if status_jogo.startswith('Finalizado'):
+                if row['Status'].startswith('Finalizado'):
                     if row['Vencedor'] == row['Casa']:
                         casa_nome_tag = f"<span class='winner'>{row['Casa']}</span>"
                         casa_score_tag = f"<span class='winner'>{row['Score Casa']}</span>"
@@ -195,12 +196,6 @@ def display_games(df, title, num_cols=4):
                     unsafe_allow_html=True
                 )
 
-                if status_jogo == 'Em Andamento':
-                    st.markdown(
-                        f"<p class='live-detail'>🔴 {row['Detalhe Status']}</p>",
-                        unsafe_allow_html=True
-                    )
-
                 col_home, col_score, col_away = st.columns([1, 2, 1])
                 with col_home:
                     st.image(get_logo_url(row['Casa']), width=60)
@@ -212,11 +207,7 @@ def display_games(df, title, num_cols=4):
                 with col_away:
                     st.image(get_logo_url(row['Visitante']), width=60)
 
-                if status_jogo == 'Agendado':
-                    st.markdown(f"<p class='status-discreto'>Início: {row['Data']}</p>", unsafe_allow_html=True)
-                elif status_jogo.startswith('Finalizado'):
-                    st.markdown(f"<p class='status-discreto'>{status_jogo}</p>", unsafe_allow_html=True)
-
+                st.markdown(f"<p class='status-discreto'>{row['Status']}</p>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -234,8 +225,8 @@ def main():
         st.warning("Nenhum dado disponível. Verifique a API.")
         return
 
-    df_in_progress = df_events[df_events['Status'] == 'Em Andamento']
-    df_scheduled = df_events[df_events['Status'] == 'Agendado']
+    df_in_progress = df_events[df_events['Status'].str.contains('Em Andamento')]
+    df_scheduled = df_events[df_events['Status'].str.contains('Agendado')]
     df_finalized = df_events[df_events['Status'].str.startswith('Finalizado')]
 
     if not df_in_progress.empty:
@@ -245,11 +236,28 @@ def main():
     if not df_finalized.empty:
         display_games(df_finalized, "✅ Resultados Recentes", num_cols=4)
 
-    # --- HISTÓRICO COMPLETO ---
+    # --- HISTÓRICO COMPLETO (semana atual) ---
     st.markdown("---")
-    st.header("📜 Histórico Completo da Temporada")
+
+    hoje = datetime.now()
+    inicio_semana = hoje - timedelta(days=hoje.weekday())  # segunda
+    fim_semana = inicio_semana + timedelta(days=6)         # domingo
+    periodo_txt = f"{inicio_semana.strftime('%d/%m')} a {fim_semana.strftime('%d/%m')}"
+
+    st.header(f"📅 Resultados da Semana Atual da NFL ({periodo_txt})")
+
     df_sorted = df_events.sort_values(by="Data", ascending=True)
-    st.dataframe(df_sorted, use_container_width=True, hide_index=True)
+
+    # Colorir vencedor/perdedor
+    def highlight_winners(row):
+        if row['Vencedor'] == row['Casa']:
+            return ['background-color: #1b4722; color: #4CAF50'] * len(row)
+        elif row['Vencedor'] == row['Visitante']:
+            return ['background-color: #471b1b; color: #FF4B4B'] * len(row)
+        return [''] * len(row)
+
+    styled = df_sorted.style.apply(highlight_winners, axis=1)
+    st.dataframe(styled, use_container_width=True, hide_index=True)
 
 if __name__ == '__main__':
     main()
