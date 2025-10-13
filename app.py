@@ -4,7 +4,7 @@ import requests
 from dateutil.parser import isoparse
 import math
 
-# **NOVIDADE: FORÇANDO O DARK MODE E MELHORANDO A LEIBILIDADE/ESPAÇAMENTO**
+# **FORÇANDO O DARK MODE E MELHORANDO A LEIBILIDADE/ESPAÇAMENTO**
 st.set_page_config(
     page_title="NFL Results Dashboard",
     layout="wide",
@@ -21,15 +21,15 @@ st.markdown("""
         color: #ffffff;
     }
     
-    /* **NOVIDADE: ESPAÇAMENTO ENTRE OS JOGOS** */
+    /* **CORREÇÃO DE ESPAÇAMENTO: APENAS MARGEM, SEM BORDA** */
     .game-card {
-        padding: 10px;
-        margin-bottom: 25px; /* Mais espaço abaixo de cada jogo */
-        border: 1px solid rgba(255, 255, 255, 0.1); /* Borda sutil para separar */
+        padding-top: 5px; /* Adiciona um pouco de padding interno superior */
+        margin-bottom: 25px; /* Espaço entre os jogos */
+        /* Removida a borda: border: 1px solid rgba(255, 255, 255, 0.1); */
         border-radius: 5px;
     }
 
-    /* **NOVIDADE: DESTAQUE VENCEDOR/PERDEDOR** */
+    /* DESTAQUE VENCEDOR/PERDEDOR */
     .winner {
         color: #4CAF50; /* Verde */
         font-weight: bold;
@@ -39,33 +39,33 @@ st.markdown("""
         font-weight: normal;
     }
 
-    /* **NOVIDADE: AUMENTO DE FONTES** */
+    /* AUMENTO DE FONTES */
     .score-display {
         text-align: center;
-        font-size: 3.5em; /* Placar maior */
+        font-size: 3.5em; 
         font-weight: bold;
         margin: 5px 0;
     }
     .team-names {
         text-align: center;
-        font-size: 1.5em; /* Nome dos times maior */
+        font-size: 1.5em; 
         font-weight: 500;
         margin-bottom: 5px;
     }
     
     /* Detalhe do status 'Ao Vivo' */
     .live-detail {
-        font-size: 1.1em; /* Fonte um pouco maior */
+        font-size: 1.1em; 
         color: #FF4B4B; 
         text-align: center;
         margin-top: -10px;
         margin-bottom: 10px;
     }
     
-    /* **NOVIDADE: STATUS FINALIZADO DISCRETO** */
+    /* STATUS FINALIZADO DISCRETO */
     .status-discreto {
         font-size: 0.9em;
-        color: #6c757d; /* Cor cinza discreta */
+        color: #6c757d; 
         text-align: center;
         margin-top: 5px;
         margin-bottom: 5px;
@@ -181,7 +181,7 @@ def display_games(df, title, num_cols=4):
         
         for i, (index, row) in enumerate(row_chunk.iterrows()):
             with cols[i]:
-                # Início do card do jogo para aplicar o espaçamento
+                # **CORREÇÃO: ENVOLVENDO TODO O CONTEÚDO DENTRO DA DIV**
                 st.markdown("<div class='game-card'>", unsafe_allow_html=True)
 
                 # Prepara o nome e placar dos times com classes
@@ -192,7 +192,7 @@ def display_games(df, title, num_cols=4):
                 
                 status_jogo = row['Status']
                 
-                # **LÓGICA PARA APLICAR VERDE (VENCEDOR) E VERMELHO (PERDEDOR)**
+                # LÓGICA PARA APLICAR VERDE (VENCEDOR) E VERMELHO (PERDEDOR)
                 if status_jogo.startswith('Finalizado'):
                     if row['Vencedor'] == row['Casa']:
                         casa_nome_tag = f"<span class='winner'>{row['Casa']}</span>"
@@ -217,7 +217,7 @@ def display_games(df, title, num_cols=4):
                 col_home, col_score, col_away = st.columns([1, 2, 1])
                 
                 with col_home:
-                    st.image(get_logo_url(row['Casa']), width=60) # Logos um pouco maiores
+                    st.image(get_logo_url(row['Casa']), width=60)
                 
                 with col_score:
                     # Exibição do Placar
@@ -230,12 +230,10 @@ def display_games(df, title, num_cols=4):
                 if status_jogo == 'Agendado':
                     st.markdown(f"<p class='status-discreto'>Início: {row['Data']}</p>", unsafe_allow_html=True)
                 elif status_jogo.startswith('Finalizado'):
-                    # **NOVIDADE: STATUS FINALIZADO DISCRETO**
                     st.markdown(f"<p class='status-discreto'>{status_jogo}</p>", unsafe_allow_html=True)
                 
-                st.markdown("</div>", unsafe_allow_html=True) # Fim do card do jogo
-                
-                # st.markdown("---") # Removido o separador padrão, o 'game-card' com margem faz o papel
+                st.markdown("</div>", unsafe_allow_html=True) # Fim da div do card
+
 
 def main():
     st.title("🏈 NFL Results Dashboard")
