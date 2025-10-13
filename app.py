@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 from dateutil.parser import isoparse
-import math # Importado para o cálculo de colunas
+import math
 
 # **FORÇANDO O DARK MODE E MELHORANDO A LEIBILIDADE/ESPAÇAMENTO**
 st.set_page_config(
@@ -21,13 +21,12 @@ st.markdown("""
         color: #ffffff;
     }
     
-    /* **AJUSTE FINAL: BORDA E ESPAÇAMENTO DO CARD** */
+    /* **ESPAÇAMENTO E BORDA CORRIGIDOS** */
     .game-card {
         padding: 10px; 
-        margin-bottom: 35px; /* Espaço maior entre os jogos */
-        border: 1px solid rgba(255, 255, 255, 0.2); /* Borda sutil de volta */
+        margin-bottom: 40px; /* AUMENTADO: Mais espaço entre os jogos */
+        border: 1px solid rgba(255, 255, 255, 0.2); /* Borda sutil */
         border-radius: 5px;
-        /* Garante que o conteúdo dentro da coluna Streamlit não fique muito estreito */
         width: 100%; 
     }
 
@@ -52,7 +51,8 @@ st.markdown("""
         text-align: center;
         font-size: 1.5em; 
         font-weight: 500;
-        margin-bottom: 5px;
+        /* **NOVIDADE: AUMENTO DE ESPAÇO ENTRE TIMES E PLACAR** */
+        padding-bottom: 10px; 
     }
     
     /* Detalhe do status 'Ao Vivo' */
@@ -141,7 +141,6 @@ def get_event_data(event):
         home_abbr = home.get('team', {}).get('abbreviation', 'CASA') if home else "CASA"
         away_abbr = away.get('team', {}).get('abbreviation', 'FORA') if away else "FORA"
         
-        # Certifica-se de que os scores são inteiros
         home_score = int(home.get('score', {}).get('value', 0)) if home and home.get('score') else 0
         away_score = int(away.get('score', {}).get('value', 0)) if away and away.get('score') else 0
 
@@ -151,7 +150,7 @@ def get_event_data(event):
             'Jogo': event.get('name', 'N/A'),
             'Data': data_formatada,
             'Status': status_pt,
-            'Detalhe Status': detalhe_status, # Campo mantido
+            'Detalhe Status': detalhe_status,
             'Casa': home_abbr,
             'Visitante': away_abbr,
             'Vencedor': winner,
@@ -193,55 +192,81 @@ def display_games(df, title, num_cols=4):
         for i, (index, row) in enumerate(row_chunk.iterrows()):
             with cols[i]:
                 # **ABRINDO O CARD DENTRO DA COLUNA**
-                st.markdown("<div class='game-card'>", unsafe_allow_html=True)
-
+                # Usamos um único bloco st.markdown para renderizar todo o card
+                
                 # Prepara tags e cores (Lógica de Vencedor/Perdedor)
-                casa_nome_tag = f"<span>{row['Casa']}</span>"
-                visitante_nome_tag = f"<span>{row['Visitante']}</span>"
-                casa_score_tag = f"<span>{row['Score Casa']}</span>"
-                visitante_score_tag = f"<span>{row['Score Visitante']}</span>"
+                casa_nome = row['Casa']
+                visitante_nome = row['Visitante']
+                casa_score = str(row['Score Casa'])
+                visitante_score = str(row['Score Visitante'])
                 
                 status_jogo = row['Status']
                 
                 if status_jogo.startswith('Finalizado'):
                     if row['Vencedor'] == row['Casa']:
-                        casa_nome_tag = f"<span class='winner'>{row['Casa']}</span>"
-                        casa_score_tag = f"<span class='winner'>{row['Score Casa']}</span>"
-                        visitante_nome_tag = f"<span class='loser'>{row['Visitante']}</span>"
-                        visitante_score_tag = f"<span class='loser'>{row['Score Visitante']}</span>"
+                        casa_nome_tag = f"<span class='winner'>{casa_nome}</span>"
+                        casa_score_tag = f"<span class='winner'>{casa_score}</span>"
+                        visitante_nome_tag = f"<span class='loser'>{visitante_nome}</span>"
+                        visitante_score_tag = f"<span class='loser'>{visitante_score}</span>"
                     elif row['Vencedor'] == row['Visitante']:
-                        visitante_nome_tag = f"<span class='winner'>{row['Visitante']}</span>"
-                        visitante_score_tag = f"<span class='winner'>{row['Score Visitante']}</span>"
-                        casa_nome_tag = f"<span class='loser'>{row['Casa']}</span>"
-                        casa_score_tag = f"<span class='loser'>{row['Score Casa']}</span>"
-
-
-                # 1. Exibição dos Nomes (Dentro do Card)
-                st.markdown(f"<p class='team-names'>{casa_nome_tag} vs {visitante_nome_tag}</p>", unsafe_allow_html=True)
-
+                        visitante_nome_tag = f"<span class='winner'>{visitante_nome}</span>"
+                        visitante_score_tag = f"<span class='winner'>{visitante_score}</span>"
+                        casa_nome_tag = f"<span class='loser'>{casa_nome}</span>"
+                        casa_score_tag = f"<span class='loser'>{casa_score}</span>"
+                    else: # Empate
+                        casa_nome_tag = f"<span>{casa_nome}</span>"
+                        visitante_nome_tag = f"<span>{visitante_nome}</span>"
+                        casa_score_tag = f"<span>{casa_score}</span>"
+                        visitante_score_tag = f"<span>{visitante_score}</span>"
+                else:
+                    # Para jogos Agendados ou Em Andamento
+                    casa_nome_tag = f"<span>{casa_nome}</span>"
+                    visitante_nome_tag = f"<span>{visitante_nome}</span>"
+                    casa_score_tag = f"<span>{casa_score}</span>"
+                    visitante_score_tag = f"<span>{visitante_score}</span>"
+                
+                
+                # Monta a string HTML completa para o Card
+                
+                # 1. Nomes dos times e Status (topo)
+                html_card = f"""
+                <div class='game-card'>
+                    <p class='team-names'>{casa_nome_tag} vs {visitante_nome_tag}</p>
+                """
+                
                 # 2. Detalhe do status para jogos ao vivo
                 if status_jogo == 'Em Andamento':
-                    st.markdown(f"<p class='live-detail'>🔴 {row['Detalhe Status']}</p>", unsafe_allow_html=True)
+                    html_card += f"<p class='live-detail'>🔴 {row['Detalhe Status']}</p>"
                 
-                # 3. Layout para Logos e Placar (Sub-colunas dentro da Coluna principal)
-                col_home, col_score, col_away = st.columns([1, 2, 1])
+                # 3. Placar (Centro)
+                # O problema de layout das logos lado a lado DEVE ser resolvido com colunas Streamlit
+                # e não com HTML, para o Streamlit renderizar as imagens corretamente.
+                # A solução é renderizar tudo até o placar via HTML e depois as logos via st.image.
+                
+                # Placar
+                html_card += f"<p class='score-display'>{casa_score_tag} - {visitante_score_tag}</p>"
+                
+                # Renderiza o HTML acima do placar
+                st.markdown(html_card, unsafe_allow_html=True)
+                
+                # 4. Logos (Layout em sub-colunas) - O MAIS CRÍTICO
+                col_home, col_away = st.columns([1, 1])
                 
                 with col_home:
                     st.image(get_logo_url(row['Casa']), width=60)
                 
-                with col_score:
-                    st.markdown(f"<p class='score-display'>{casa_score_tag} - {visitante_score_tag}</p>", unsafe_allow_html=True)
-                
                 with col_away:
                     st.image(get_logo_url(row['Visitante']), width=60)
 
-                # 4. Informações discretas no rodapé
+                # 5. Informações discretas no rodapé (Abaixo das logos)
                 if status_jogo == 'Agendado':
                     st.markdown(f"<p class='status-discreto'>Início: {row['Data']}</p>", unsafe_allow_html=True)
                 elif status_jogo.startswith('Finalizado'):
                     st.markdown(f"<p class='status-discreto'>{status_jogo}</p>", unsafe_allow_html=True)
                 
-                # **FECHANDO O CARD DENTRO DA COLUNA**
+                # Não é necessário fechar a div aqui, pois foi aberta no st.markdown anterior. 
+                # O Streamlit é que precisa ser 'enganado' para manter o estilo do card.
+                # O st.markdown final apenas fecha a div aberta no topo.
                 st.markdown("</div>", unsafe_allow_html=True) 
 
 
