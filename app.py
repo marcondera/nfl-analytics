@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 from dateutil.parser import isoparse
-import math
+import math # Importado para o cálculo de colunas
 
 # **FORÇANDO O DARK MODE E MELHORANDO A LEIBILIDADE/ESPAÇAMENTO**
 st.set_page_config(
@@ -21,12 +21,14 @@ st.markdown("""
         color: #ffffff;
     }
     
-    /* **CORREÇÃO: REVERTENDO A BORDA E AUMENTANDO O ESPAÇAMENTO** */
+    /* **AJUSTE FINAL: BORDA E ESPAÇAMENTO DO CARD** */
     .game-card {
-        padding: 10px; /* Padding interno */
-        margin-bottom: 35px; /* MAIS espaço entre os jogos */
+        padding: 10px; 
+        margin-bottom: 35px; /* Espaço maior entre os jogos */
         border: 1px solid rgba(255, 255, 255, 0.2); /* Borda sutil de volta */
         border-radius: 5px;
+        /* Garante que o conteúdo dentro da coluna Streamlit não fique muito estreito */
+        width: 100%; 
     }
 
     /* DESTAQUE VENCEDOR/PERDEDOR */
@@ -69,6 +71,14 @@ st.markdown("""
         text-align: center;
         margin-top: 5px;
         margin-bottom: 5px;
+    }
+    
+    /* Centraliza as imagens dentro de suas colunas */
+    .stImage {
+        text-align: center;
+    }
+    .stImage > img {
+        margin: auto;
     }
     
 </style>
@@ -131,6 +141,7 @@ def get_event_data(event):
         home_abbr = home.get('team', {}).get('abbreviation', 'CASA') if home else "CASA"
         away_abbr = away.get('team', {}).get('abbreviation', 'FORA') if away else "FORA"
         
+        # Certifica-se de que os scores são inteiros
         home_score = int(home.get('score', {}).get('value', 0)) if home and home.get('score') else 0
         away_score = int(away.get('score', {}).get('value', 0)) if away and away.get('score') else 0
 
@@ -140,7 +151,7 @@ def get_event_data(event):
             'Jogo': event.get('name', 'N/A'),
             'Data': data_formatada,
             'Status': status_pt,
-            'Detalhe Status': detalhe_status,
+            'Detalhe Status': detalhe_status, # Campo mantido
             'Casa': home_abbr,
             'Visitante': away_abbr,
             'Vencedor': winner,
@@ -181,10 +192,10 @@ def display_games(df, title, num_cols=4):
         
         for i, (index, row) in enumerate(row_chunk.iterrows()):
             with cols[i]:
-                # O CONTEÚDO AGORA ESTÁ ENVOLVIDO CORRETAMENTE
+                # **ABRINDO O CARD DENTRO DA COLUNA**
                 st.markdown("<div class='game-card'>", unsafe_allow_html=True)
 
-                # Prepara o nome e placar dos times com classes
+                # Prepara tags e cores (Lógica de Vencedor/Perdedor)
                 casa_nome_tag = f"<span>{row['Casa']}</span>"
                 visitante_nome_tag = f"<span>{row['Visitante']}</span>"
                 casa_score_tag = f"<span>{row['Score Casa']}</span>"
@@ -192,7 +203,6 @@ def display_games(df, title, num_cols=4):
                 
                 status_jogo = row['Status']
                 
-                # LÓGICA PARA APLICAR VERDE (VENCEDOR) E VERMELHO (PERDEDOR)
                 if status_jogo.startswith('Finalizado'):
                     if row['Vencedor'] == row['Casa']:
                         casa_nome_tag = f"<span class='winner'>{row['Casa']}</span>"
@@ -206,33 +216,33 @@ def display_games(df, title, num_cols=4):
                         casa_score_tag = f"<span class='loser'>{row['Score Casa']}</span>"
 
 
-                # Exibição dos Nomes
+                # 1. Exibição dos Nomes (Dentro do Card)
                 st.markdown(f"<p class='team-names'>{casa_nome_tag} vs {visitante_nome_tag}</p>", unsafe_allow_html=True)
 
-                # Detalhe do status para jogos ao vivo (acima do placar)
+                # 2. Detalhe do status para jogos ao vivo
                 if status_jogo == 'Em Andamento':
                     st.markdown(f"<p class='live-detail'>🔴 {row['Detalhe Status']}</p>", unsafe_allow_html=True)
                 
-                # Layout para Logos e Placar
+                # 3. Layout para Logos e Placar (Sub-colunas dentro da Coluna principal)
                 col_home, col_score, col_away = st.columns([1, 2, 1])
                 
                 with col_home:
                     st.image(get_logo_url(row['Casa']), width=60)
                 
                 with col_score:
-                    # Exibição do Placar
                     st.markdown(f"<p class='score-display'>{casa_score_tag} - {visitante_score_tag}</p>", unsafe_allow_html=True)
                 
                 with col_away:
                     st.image(get_logo_url(row['Visitante']), width=60)
 
-                # Informações discretas no rodapé
+                # 4. Informações discretas no rodapé
                 if status_jogo == 'Agendado':
                     st.markdown(f"<p class='status-discreto'>Início: {row['Data']}</p>", unsafe_allow_html=True)
                 elif status_jogo.startswith('Finalizado'):
                     st.markdown(f"<p class='status-discreto'>{status_jogo}</p>", unsafe_allow_html=True)
                 
-                st.markdown("</div>", unsafe_allow_html=True) # Fim do card
+                # **FECHANDO O CARD DENTRO DA COLUNA**
+                st.markdown("</div>", unsafe_allow_html=True) 
 
 
 def main():
