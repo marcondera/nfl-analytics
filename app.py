@@ -21,11 +21,11 @@ st.markdown("""
         color: #ffffff;
     }
     
-    /* **CORREÇÃO DE ESPAÇAMENTO: APENAS MARGEM, SEM BORDA** */
+    /* **CORREÇÃO: REVERTENDO A BORDA E AUMENTANDO O ESPAÇAMENTO** */
     .game-card {
-        padding-top: 5px; /* Adiciona um pouco de padding interno superior */
-        margin-bottom: 25px; /* Espaço entre os jogos */
-        /* Removida a borda: border: 1px solid rgba(255, 255, 255, 0.1); */
+        padding: 10px; /* Padding interno */
+        margin-bottom: 35px; /* MAIS espaço entre os jogos */
+        border: 1px solid rgba(255, 255, 255, 0.2); /* Borda sutil de volta */
         border-radius: 5px;
     }
 
@@ -181,7 +181,7 @@ def display_games(df, title, num_cols=4):
         
         for i, (index, row) in enumerate(row_chunk.iterrows()):
             with cols[i]:
-                # **CORREÇÃO: ENVOLVENDO TODO O CONTEÚDO DENTRO DA DIV**
+                # O CONTEÚDO AGORA ESTÁ ENVOLVIDO CORRETAMENTE
                 st.markdown("<div class='game-card'>", unsafe_allow_html=True)
 
                 # Prepara o nome e placar dos times com classes
@@ -232,7 +232,7 @@ def display_games(df, title, num_cols=4):
                 elif status_jogo.startswith('Finalizado'):
                     st.markdown(f"<p class='status-discreto'>{status_jogo}</p>", unsafe_allow_html=True)
                 
-                st.markdown("</div>", unsafe_allow_html=True) # Fim da div do card
+                st.markdown("</div>", unsafe_allow_html=True) # Fim do card
 
 
 def main():
