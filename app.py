@@ -21,17 +21,20 @@ st.markdown("""
         color: #ffffff;
     }
     
-    /* **AJUSTE FINAL: BORDA ARREDONDADA E PADDING** */
+    /* **AJUSTE FINAL: BORDA ARREDONDADA COM BACKGROUND VISÍVEL** */
     .game-card {
-        padding: 20px; /* Aumenta o espaçamento interno do card */
-        margin-bottom: 35px; /* Espaço maior entre os jogos (vertical) */
-        /* Reintroduz a borda sutil e a arredonda */
+        padding: 20px; /* Espaçamento interno */
+        margin-bottom: 35px; /* Espaço entre as linhas de jogos (vertical) */
+        
+        /* BORDA ARREDONDADA */
         border: 1px solid rgba(255, 255, 255, 0.25); 
-        border-radius: 10px; /* Bordas arredondadas (10px é um bom valor) */
+        border-radius: 10px; 
+        
+        /* FUNDO MAIS VISÍVEL PARA DESTACAR O CARD */
+        background-color: #1c212a; /* Cor de fundo mais escura que o app (0e1117) */
+        
         /* Garante que o conteúdo dentro da coluna Streamlit não fique muito estreito */
         width: 100%; 
-        /* Opcional: Adicionar um fundo levemente mais escuro para destaque */
-        background-color: rgba(255, 255, 255, 0.03);
     }
 
     /* DESTAQUE VENCEDOR/PERDEDOR */
@@ -84,11 +87,8 @@ st.markdown("""
         margin: auto;
     }
     
-    /* Mantém o espaçamento horizontal entre as colunas */
-    .st-emotion-cache-h4ytrb { 
-        padding-left: 15px !important; 
-        padding-right: 15px !important;
-    }
+    /* Mantém o espaçamento horizontal entre as colunas, usando a propriedade gap do st.columns */
+    /* Removemos a classe específica de cache (st-emotion-cache-h4ytrb) para maior compatibilidade. */
 
 </style>
 """, unsafe_allow_html=True)
@@ -101,8 +101,8 @@ LOGO_MAP = {
     "CHI": "chi", "CLE": "cle", "DAL": "dal", "DEN": "den", "det": "det", "GB": "gb",
     "HOU": "hou", "IND": "ind", "JAX": "jac", "KC": "kc", "LAC": "lac", "LAR": "lar",
     "LV": "lv", "MIA": "mia", "MIN": "min", "NE": "ne", "NO": "no", "NYG": "nyg",
-    "NYJ": "nyj", "PHI": "phi", "PIT": "pit", "SEA": "sea", "tb": "tb", "TEN": "ten",
-    "WAS": "wsh", "ARI": "ari", "WSH": "wsh", "TB": "tb", "DET": "det"
+    "NYJ": "nyj", "PHI": "phi", "pit": "pit", "SEA": "sea", "tb": "tb", "TEN": "ten",
+    "WAS": "wsh", "ARI": "ari", "WSH": "wsh", "TB": "tb", "DET": "det", "PIT": "pit" # Incluído PIT
 }
 
 def get_logo_url(abbreviation):
@@ -197,7 +197,7 @@ def display_games(df, title, num_cols=4):
     rows = [df.iloc[i:i + num_cols] for i in range(0, len(df), num_cols)]
 
     for row_chunk in rows:
-        # Mantendo o gap large
+        # Mantendo o gap large para o espaçamento horizontal
         cols = st.columns(num_cols, gap="large") 
         
         for i, (index, row) in enumerate(row_chunk.iterrows()):
