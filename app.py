@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import requests
 from dateutil.parser import isoparse
-import math
 
 # --- CONFIGURAÇÃO DO APP ---
 st.set_page_config(
@@ -20,28 +19,19 @@ st.markdown("""
         color: #ffffff;
     }
 
-    .game-card {
-        padding: 20px;
-        margin-bottom: 35px;
-        border: 1px solid rgba(255, 255, 255, 0.25);
-        border-radius: 10px;
-        background-color: #1c212a;
-        width: 100%;
-    }
-
     .winner { color: #4CAF50; font-weight: bold; }
     .loser { color: #FF4B4B; font-weight: normal; }
 
     .score-display {
         text-align: center;
-        font-size: 3.5em;
+        font-size: 2.8em;
         font-weight: bold;
         margin: 5px 0;
     }
 
     .team-names {
         text-align: center;
-        font-size: 1.5em;
+        font-size: 1.3em;
         font-weight: 500;
         margin-bottom: 5px;
     }
@@ -61,9 +51,6 @@ st.markdown("""
         margin-top: 5px;
         margin-bottom: 5px;
     }
-
-    .stImage { text-align: center; }
-    .stImage > img { margin: auto; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -160,28 +147,23 @@ def load_data(api_url):
         st.error("Erro ao carregar os dados da API. Verifique a URL e a conexão.")
         return pd.DataFrame()
 
-# --- FUNÇÃO DE EXIBIÇÃO SEM BORDAS VAZIAS ---
+# --- EXIBIÇÃO SEM DIVS ---
 def display_games(df, title, num_cols=4):
     if df.empty:
         return
 
     st.header(title)
-    rows = [df.iloc[i:i + num_cols] for i in range(0, len(df), num_cols)]
 
-    for row_chunk in rows:
-        valid_games = row_chunk.dropna(subset=["Casa", "Visitante"])
-        if valid_games.empty:
+    for i in range(0, len(df), num_cols):
+        chunk = df.iloc[i:i + num_cols]
+        chunk = chunk[(chunk['Casa'] != "ERRO") & (chunk['Visitante'] != "ERRO")]
+        if chunk.empty:
             continue
 
-        cols = st.columns(len(valid_games), gap="large")
+        cols = st.columns(len(chunk), gap="large")
 
-        for i, (index, row) in enumerate(valid_games.iterrows()):
-            if row['Casa'] == "ERRO" or row['Visitante'] == "ERRO":
-                continue
-
-            with cols[i]:
-                st.markdown("<div class='game-card'>", unsafe_allow_html=True)
-
+        for col, (_, row) in zip(cols, chunk.iterrows()):
+            with col:
                 casa_nome_tag = f"<span>{row['Casa']}</span>"
                 visitante_nome_tag = f"<span>{row['Visitante']}</span>"
                 casa_score_tag = f"<span>{row['Score Casa']}</span>"
@@ -200,16 +182,25 @@ def display_games(df, title, num_cols=4):
                         casa_nome_tag = f"<span class='loser'>{row['Casa']}</span>"
                         casa_score_tag = f"<span class='loser'>{row['Score Casa']}</span>"
 
-                st.markdown(f"<p class='team-names'>{casa_nome_tag} vs {visitante_nome_tag}</p>", unsafe_allow_html=True)
+                st.markdown(
+                    f"<p class='team-names'>{casa_nome_tag} vs {visitante_nome_tag}</p>",
+                    unsafe_allow_html=True
+                )
 
                 if status_jogo == 'Em Andamento':
-                    st.markdown(f"<p class='live-detail'>🔴 {row['Detalhe Status']}</p>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<p class='live-detail'>🔴 {row['Detalhe Status']}</p>",
+                        unsafe_allow_html=True
+                    )
 
                 col_home, col_score, col_away = st.columns([1, 2, 1])
                 with col_home:
                     st.image(get_logo_url(row['Casa']), width=60)
                 with col_score:
-                    st.markdown(f"<p class='score-display'>{casa_score_tag} - {visitante_score_tag}</p>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<p class='score-display'>{casa_score_tag} - {visitante_score_tag}</p>",
+                        unsafe_allow_html=True
+                    )
                 with col_away:
                     st.image(get_logo_url(row['Visitante']), width=60)
 
@@ -218,7 +209,6 @@ def display_games(df, title, num_cols=4):
                 elif status_jogo.startswith('Finalizado'):
                     st.markdown(f"<p class='status-discreto'>{status_jogo}</p>", unsafe_allow_html=True)
 
-                st.markdown("</div>", unsafe_allow_html=True)
 
 # --- MAIN ---
 def main():
