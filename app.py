@@ -1,66 +1,14 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import requests
 from dateutil.parser import isoparse
 from datetime import datetime, timedelta
+import json
+import html
 
-# --- CONFIGURAÇÃO ---
-st.set_page_config(page_title="NFL Results Dashboard", layout="wide", page_icon="🏈")
-
-# --- CSS GLOBAL ---
-st.markdown("""
-<style>
-.stApp { background-color: #0e1117; color: #ffffff; }
-
-.winner { color: #4CAF50; font-weight: bold; }
-.loser { color: #FF4B4B; font-weight: normal; }
-
-.score-display {
-    text-align: center;
-    font-size: 4.2em;
-    font-weight: 900;
-    margin: 0;
-    line-height: 0.9;
-}
-
-.team-names {
-    text-align: center;
-    font-size: 1.3em;
-    font-weight: 500;
-    margin-bottom: 5px;
-}
-
-.status-discreto {
-    font-size: 0.9em;
-    color: #6c757d;
-    text-align: center;
-    margin-top: 5px;
-    margin-bottom: 5px;
-}
-
-.game-block {
-    margin-bottom: 40px;
-}
-
-/* aproxima logos do placar diretamente */
-img[data-testid="stImage"] {
-    margin: 0px -8px !important;
-    padding: 0 !important;
-}
-
-/* força colunas internas a não criarem espaçamento */
-div[data-testid="column"] {
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-}
-
-/* tabela */
-.dataframe td {
-    text-align: center;
-    font-size: 0.95em;
-}
-</style>
-""", unsafe_allow_html=True)
+# Streamlit page config
+st.set_page_config(page_title="NFL Results Dashboard — Redesigned", layout="wide", page_icon="🏈")
 
 API_URL_EVENTS_2025 = "https://partners.api.espn.com/v2/sports/football/nfl/events?dates=2025"
 
@@ -74,164 +22,291 @@ LOGO_MAP = {
 }
 
 def get_logo_url(abbreviation):
-    abbr = LOGO_MAP.get(abbreviation.upper(), abbreviation.lower())
+    abbr = LOGO_MAP.get(str(abbreviation).upper(), str(abbreviation).lower())
     return f"https://a.espncdn.com/i/teamlogos/nfl/500/{abbr}.png"
 
 def get_period_name(period):
     period_map = {1: "1º Quarto", 2: "2º Quarto", 3: "3º Quarto", 4: "4º Quarto"}
     return period_map.get(period, "Prorrogação" if period > 4 else "")
 
-def get_event_data(event):
+def parse_event(event):
     try:
-        comp = event['competitions'][0]
+        comp = event.get('competitions', [])[0]
         date_iso = comp.get('date')
-        data_formatada = isoparse(date_iso).strftime('%d/%m/%Y %H:%M BRT') if date_iso else "N/A"
+        data_obj = isoparse(date_iso) if date_iso else None
+        data_formatada = data_obj.strftime('%d/%m/%Y %H:%M') + " BRT" if data_obj else "N/A"
 
         status = comp.get('status', {})
-        status_type = status.get('type', {})
-        status_text = str(status_type).lower()
+        stype = status.get('type', {}) or {}
+        stype_text = str(stype).lower()
 
-        if 'final' in status_text:
-            status_pt = 'Finalizado (Prorrogação)' if 'ot' in status_text else 'Finalizado'
-        elif status_type.get('state') == 'in':
+        if 'final' in stype_text:
+            status_pt = 'Finalizado (Prorrogação)' if 'ot' in stype_text else 'Finalizado'
+        elif stype.get('state') == 'in':
             clock = status.get('displayClock', '0:00')
             period = status.get('period', 1)
             status_pt = f"Em Andamento – {clock} restantes no {get_period_name(period)}"
-        elif status_type.get('state') == 'pre':
+        elif stype.get('state') == 'pre':
             status_pt = 'Agendado'
         else:
-            status_pt = status_type.get('description', 'Status Desconhecido')
+            status_pt = stype.get('description', 'Status Desconhecido')
 
         competitors = comp.get('competitors', [])
-        home, away = (competitors + [None, None])[:2]
+        home = competitors[0] if len(competitors) > 0 else {}
+        away = competitors[1] if len(competitors) > 1 else {}
 
-        home_abbr = home.get('team', {}).get('abbreviation', 'CASA') if home else "CASA"
-        away_abbr = away.get('team', {}).get('abbreviation', 'FORA') if away else "FORA"
+        home_abbr = home.get('team', {}).get('abbreviation', 'CASA')
+        away_abbr = away.get('team', {}).get('abbreviation', 'FORA')
 
-        home_score = int(home.get('score', {}).get('value', 0)) if home and home.get('score') else 0
-        away_score = int(away.get('score', {}).get('value', 0)) if away and away.get('score') else 0
+        home_score = int(home.get('score', {}).get('value', 0)) if home.get('score') else 0
+        away_score = int(away.get('score', {}).get('value', 0)) if away.get('score') else 0
 
         winner = home_abbr if home_score > away_score else away_abbr if away_score > home_score else "Empate"
 
         return {
-            'Jogo': event.get('name', 'N/A'),
-            'Data': data_formatada,
-            'Status': status_pt,
-            'Casa': home_abbr,
-            'Visitante': away_abbr,
-            'Vencedor': winner,
-            'Score Casa': home_score,
-            'Score Visitante': away_score,
+            'id': event.get('id', ''),
+            'name': event.get('name', ''),
+            'date': data_formatada,
+            'timestamp': data_obj.isoformat() if data_obj else "",
+            'status': status_pt,
+            'home': home_abbr,
+            'away': away_abbr,
+            'home_score': home_score,
+            'away_score': away_score,
+            'winner': winner,
+            'home_logo': get_logo_url(home_abbr),
+            'away_logo': get_logo_url(away_abbr)
         }
     except Exception:
-        return {
-            'Jogo': 'Erro ao carregar',
-            'Data': 'N/A',
-            'Status': 'ERRO',
-            'Casa': 'ERRO',
-            'Visitante': 'ERRO',
-            'Vencedor': 'N/A',
-            'Score Casa': 0,
-            'Score Visitante': 0
-        }
+        return None
 
 @st.cache_data(ttl=60)
-def load_data(api_url):
+def load_events(api_url):
     try:
-        r = requests.get(api_url)
+        r = requests.get(api_url, timeout=8)
         r.raise_for_status()
-        events = r.json().get('events', [])
-        return pd.DataFrame([get_event_data(e) for e in events])
+        ev = r.json().get('events', [])
+        parsed = [parse_event(e) for e in ev]
+        parsed = [p for p in parsed if p is not None]
+        # ensure chronological
+        parsed.sort(key=lambda x: x['timestamp'] or "")
+        return parsed
     except Exception:
-        st.error("Erro ao carregar dados da API.")
-        return pd.DataFrame()
+        return []
 
-def display_games(df, title, num_cols=4):
-    if df.empty:
-        return
-    st.header(title)
+# ---------- UI ----------
+st.markdown("<h1 style='margin-bottom:4px'>🏈 NFL Results — Redesigned</h1>", unsafe_allow_html=True)
 
-    for i in range(0, len(df), num_cols):
-        chunk = df.iloc[i:i + num_cols]
-        chunk = chunk[(chunk['Casa'] != "ERRO") & (chunk['Visitante'] != "ERRO")]
-        if chunk.empty:
-            continue
+# Week header
+hoje = datetime.now()
+inicio_semana = hoje - timedelta(days=hoje.weekday())
+fim_semana = inicio_semana + timedelta(days=6)
+periodo_txt = f"{inicio_semana.strftime('%d/%m')} → {fim_semana.strftime('%d/%m')}"
+st.markdown(f"<h3 style='color:#bfc7d6; margin-top:0'>📅 Resultados da Semana Atual ({periodo_txt})</h3>", unsafe_allow_html=True)
 
-        cols = st.columns(len(chunk), gap="small")
+if st.button("🔄 Recarregar dados"):
+    st.cache_data.clear()
+    st.experimental_rerun()
 
-        for col, (_, row) in zip(cols, chunk.iterrows()):
-            with col:
-                st.markdown("<div class='game-block'>", unsafe_allow_html=True)
-                casa_nome_tag = f"<span>{row['Casa']}</span>"
-                visitante_nome_tag = f"<span>{row['Visitante']}</span>"
-                casa_score_tag = f"<span>{row['Score Casa']}</span>"
-                visitante_score_tag = f"<span>{row['Score Visitante']}</span>"
+events = load_events(API_URL_EVENTS_2025)
 
-                if row['Status'].startswith('Finalizado'):
-                    if row['Vencedor'] == row['Casa']:
-                        casa_nome_tag = f"<span class='winner'>{row['Casa']}</span>"
-                        casa_score_tag = f"<span class='winner'>{row['Score Casa']}</span>"
-                        visitante_nome_tag = f"<span class='loser'>{row['Visitante']}</span>"
-                        visitante_score_tag = f"<span class='loser'>{row['Score Visitante']}</span>"
-                    elif row['Vencedor'] == row['Visitante']:
-                        visitante_nome_tag = f"<span class='winner'>{row['Visitante']}</span>"
-                        visitante_score_tag = f"<span class='winner'>{row['Score Visitante']}</span>"
-                        casa_nome_tag = f"<span class='loser'>{row['Casa']}</span>"
-                        casa_score_tag = f"<span class='loser'>{row['Score Casa']}</span>"
+if not events:
+    st.warning("Nenhum dado disponível — verifique a API ou a conexão.")
+    st.stop()
 
-                st.markdown(f"<p class='team-names'>{casa_nome_tag} vs {visitante_nome_tag}</p>", unsafe_allow_html=True)
+# Group by status for display order: in progress, scheduled, finalized
+in_progress = [e for e in events if "Andamento" in e['status'] or "Andando" in e['status'] or "Em Andamento" in e['status']]
+scheduled = [e for e in events if "Agendado" in e['status']]
+finalized = [e for e in events if e not in in_progress and e not in scheduled]
 
-                # logos colados no placar
-                col_home, col_score, col_away = st.columns([1, 1.2, 1])
-                with col_home:
-                    st.image(get_logo_url(row['Casa']), width=55)
-                with col_score:
-                    st.markdown(f"<p class='score-display'>{casa_score_tag} - {visitante_score_tag}</p>", unsafe_allow_html=True)
-                with col_away:
-                    st.image(get_logo_url(row['Visitante']), width=55)
+# combine but keep consistent layout
+display_order = [
+    ("🔴 Jogos Ao Vivo", in_progress),
+    ("⏳ Próximos Jogos", scheduled),
+    ("✅ Resultados Recentes", finalized)
+]
 
-                st.markdown(f"<p class='status-discreto'>{row['Status']}</p>", unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)
+# Prepare JSON data for the HTML renderer
+payload = {
+    "sections": []
+}
+for title, lst in display_order:
+    payload["sections"].append({
+        "title": title,
+        "games": lst
+    })
 
-def main():
-    st.title("🏈 NFL Results Dashboard")
-    st.markdown("### Informações atualizadas sobre jogos da NFL (Temporada 2025)")
+# Also prepare CSV download
+df_hist = pd.DataFrame(events)
+csv_bytes = df_hist.to_csv(index=False).encode('utf-8')
 
-    if st.button("🔄 Recarregar Dados"):
-        st.cache_data.clear()
-        st.rerun()
+st.download_button("📥 Baixar histórico (CSV)", data=csv_bytes, file_name="nfl_history.csv", mime="text/csv")
 
-    df = load_data(API_URL_EVENTS_2025)
-    if df.empty:
-        st.warning("Nenhum dado disponível.")
-        return
+# Build HTML/JS frontend (responsive grid, polished styling)
+html_content = f"""
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{{
+    --bg:#0e1117;
+    --card:#11151b;
+    --muted:#9aa4b2;
+    --accent:#4CAF50;
+    --danger:#FF4B4B;
+    --glass: rgba(255,255,255,0.03);
+  }}
+  html,body{{background:var(--bg); color:#fff; font-family:Inter,system-ui,Segoe UI,Roboto;}}
+  .wrap{{padding:18px; box-sizing:border-box;}}
+  .section-title{{font-size:20px; color:#e6eef8; margin:12px 0 10px; display:flex; align-items:center; gap:10px}}
+  .grid{{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:40px 18px; align-items:start;}}
+  .card{{
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-radius:12px; padding:16px; box-shadow: 0 6px 18px rgba(0,0,0,0.6);
+    border: 1px solid rgba(255,255,255,0.03);
+    display:flex; flex-direction:column; gap:10px;
+  }}
+  .meta{{display:flex; justify-content:space-between; align-items:center; color:var(--muted); font-size:13px;}}
+  .teams{{display:flex; align-items:center; justify-content:center; gap:8px;}}
+  .team{{display:flex; align-items:center; gap:8px; min-width:0;}}
+  .logo{{width:56px; height:56px; object-fit:contain; display:block; margin:0;}}
+  /* negative margin to bring logos very close to score */
+  .logo.left{{margin-right:-10px}} 
+  .logo.right{{margin-left:-10px}} 
+  .score-wrap{{display:flex; align-items:center; justify-content:center; gap:6px; min-width:120px;}}
+  .score{{font-size:3.6rem; font-weight:900; line-height:0.9; letter-spacing:-2px; color:#fff;}}
+  .team-name{{font-weight:600; font-size:0.95rem; color:#dfe8f5; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:70px; text-align:center;}}
+  .status{{text-align:center; color:var(--muted); font-size:0.9rem; margin-top:6px;}}
+  .row-center{{display:flex; align-items:center; justify-content:center; gap:12px;}}
+  /* small badge for winner */
+  .winner-badge{{background:linear-gradient(90deg,var(--accent),#2fa14f); color:#04120a; font-weight:800;
+                 padding:4px 8px; border-radius:999px; font-size:0.8rem;}}
+  .loser-text{{color:var(--danger); font-weight:600;}}
+  /* table */
+  .hist-wrap{{margin-top:24px;}}
+  table.hist{{width:100%; border-collapse:collapse; font-size:0.95rem;}}
+  table.hist th, table.hist td{{padding:10px; text-align:center; border-bottom:1px solid rgba(255,255,255,0.03);}}
+  table.hist th{{color:var(--muted); font-weight:600; font-size:0.85rem;}}
+  .winner-cell{{color:var(--accent); font-weight:800;}}
+  .loser-cell{{color:var(--danger); opacity:0.95; font-weight:700;}}
+  /* responsive tweaks */
+  @media (max-width:560px){ .score{{font-size:2.4rem}} .logo{{width:44px;height:44px}} .team-name{{max-width:60px}} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- sections will be injected -->
+  <div id="sections"></div>
 
-    df_in = df[df['Status'].str.contains('Em Andamento')]
-    df_ag = df[df['Status'].str.contains('Agendado')]
-    df_fin = df[df['Status'].str.startswith('Finalizado')]
+  <div class="hist-wrap">
+    <h3 style="margin:8px 0 10px; color:#e6eef8">📜 Histórico Completo (Semana Atual: {html.escape(periodo_txt)})</h3>
+    <div style="overflow:auto; border-radius:10px; padding:8px; background:var(--glass);">
+      <table class="hist" id="hist-table">
+        <thead>
+          <tr><th>Data</th><th>Jogo</th><th>Casa</th><th>Pts</th><th>Visitante</th><th>Pts</th><th>Status</th></tr>
+        </thead>
+        <tbody id="hist-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
 
-    for subset, title in [(df_in, "🔴 Jogos Ao Vivo"), (df_ag, "⏳ Próximos Jogos"), (df_fin, "✅ Resultados Recentes")]:
-        if not subset.empty:
-            display_games(subset, title)
+<script>
+(function(){
+  const payload = {html_payload};
+  const secRoot = document.getElementById('sections');
 
-    st.markdown("---")
-    hoje = datetime.now()
-    inicio_semana = hoje - timedelta(days=hoje.weekday())
-    fim_semana = inicio_semana + timedelta(days=6)
-    periodo = f"{inicio_semana.strftime('%d/%m')} a {fim_semana.strftime('%d/%m')}"
-    st.header(f"📅 Resultados da Semana Atual da NFL ({periodo})")
+  function makeCard(g){
+    // create card element
+    const c = document.createElement('div');
+    c.className = 'card';
+    // meta row: date and maybe winner badge
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.innerHTML = `<div style="font-size:13px;color:var(--muted)">${g.date}</div>
+                      <div>${g.status.includes('Finalizado') ? '<span class="winner-badge">Resultado</span>' : ''}</div>`;
+    c.appendChild(meta);
 
-    df_sorted = df.sort_values(by="Data", ascending=True)
+    // teams row (logos + score)
+    const teams = document.createElement('div');
+    teams.className = 'row-center';
 
-    def highlight(row):
-        if row['Vencedor'] == row['Casa']:
-            return ['background-color: #1b4722; color: #4CAF50'] * len(row)
-        elif row['Vencedor'] == row['Visitante']:
-            return ['background-color: #471b1b; color: #FF4B4B'] * len(row)
-        return [''] * len(row)
+    const tleft = document.createElement('div');
+    tleft.className = 'team';
+    tleft.innerHTML = `<img class="logo left" src="${g.home_logo}" alt="${g.home}"/><div class="team-name">${g.home}</div>`;
 
-    styled = df_sorted.style.apply(highlight, axis=1)
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    const scorewrap = document.createElement('div');
+    scorewrap.className = 'score-wrap';
+    // highlight winner when finalized
+    let leftClass = '';
+    let rightClass = '';
+    if(g.winner && g.winner !== 'Empate' && g.status.includes('Finalizado')){
+      if(g.winner === g.home) leftClass = 'winner-cell'; else rightClass='winner-cell';
+      if(g.winner === g.away) rightClass = 'winner-cell'; else leftClass = leftClass || '';
+    }
 
-if __name__ == "__main__":
-    main()
+    scorewrap.innerHTML = `<div class="score"><span class="${leftClass}">${g.home_score}</span> <span style="opacity:0.6; font-size:0.6em; font-weight:700; margin:0 4px">-</span> <span class="${rightClass}">${g.away_score}</span></div>`;
+
+    const tright = document.createElement('div');
+    tright.className = 'team';
+    tright.innerHTML = `<div class="team-name">${g.away}</div><img class="logo right" src="${g.away_logo}" alt="${g.away}"/>`;
+
+    teams.appendChild(tleft);
+    teams.appendChild(scorewrap);
+    teams.appendChild(tright);
+
+    c.appendChild(teams);
+
+    // status
+    const s = document.createElement('div');
+    s.className = 'status';
+    s.textContent = g.status;
+    c.appendChild(s);
+
+    return c;
+  }
+
+  // render sections
+  payload.sections.forEach(section=>{
+    if(!section.games || section.games.length===0) return;
+    const title = document.createElement('div');
+    title.className = 'section-title';
+    title.innerHTML = `<strong>${section.title}</strong>`;
+    secRoot.appendChild(title);
+
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    section.games.forEach(g => {
+      grid.appendChild(makeCard(g));
+    });
+    secRoot.appendChild(grid);
+  });
+
+  // history table
+  const histBody = document.getElementById('hist-body');
+  // sort by timestamp already sorted in backend; just render
+  payload.sections.flatMap(s=>s.games).forEach(g=>{
+    const tr = document.createElement('tr');
+    const homeClass = (g.winner === g.home && g.status.includes('Finalizado')) ? 'winner-cell' : (g.winner === g.away && g.status.includes('Finalizado')) ? 'loser-cell' : '';
+    const awayClass = (g.winner === g.away && g.status.includes('Finalizado')) ? 'winner-cell' : (g.winner === g.home && g.status.includes('Finalizado')) ? 'loser-cell' : '';
+    tr.innerHTML = `<td>${g.date}</td>
+                    <td>${g.name}</td>
+                    <td class="${homeClass}">${g.home}</td>
+                    <td class="${homeClass}">${g.home_score}</td>
+                    <td class="${awayClass}">${g.away}</td>
+                    <td class="${awayClass}">${g.away_score}</td>
+                    <td>${g.status}</td>`;
+    histBody.appendChild(tr);
+  });
+
+})(); 
+</script>
+</body>
+</html>
+""".replace("{html_payload}", html.escape(json.dumps(payload)))
+
+# Render the HTML in Streamlit; allow height large enough for many cards
+st.components.v1.html(html_content, height=900, scrolling=True)
