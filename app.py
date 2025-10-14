@@ -4,79 +4,61 @@ import requests
 from dateutil.parser import isoparse
 from datetime import datetime, timedelta
 
-# --- CONFIGURAÇÃO DO APP ---
-st.set_page_config(
-    page_title="NFL Results Dashboard",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-    page_icon="🏈"
-)
+# --- CONFIGURAÇÃO ---
+st.set_page_config(page_title="NFL Results Dashboard", layout="wide", page_icon="🏈")
 
-# --- ESTILOS ---
+# --- CSS GLOBAL ---
 st.markdown("""
 <style>
-    .stApp {
-        background-color: #0e1117;
-        color: #ffffff;
-    }
+.stApp { background-color: #0e1117; color: #ffffff; }
 
-    .winner { color: #4CAF50; font-weight: bold; }
-    .loser { color: #FF4B4B; font-weight: normal; }
+.winner { color: #4CAF50; font-weight: bold; }
+.loser { color: #FF4B4B; font-weight: normal; }
 
-    /* Pontuação ainda maior e logos praticamente colados */
-    .score-display {
-        text-align: center;
-        font-size: 4em;  /* mais destaque */
-        font-weight: 900;
-        margin: -5px 0;
-        letter-spacing: -2px;
-    }
+.score-display {
+    text-align: center;
+    font-size: 4.2em;
+    font-weight: 900;
+    margin: 0;
+    line-height: 0.9;
+}
 
-    .team-names {
-        text-align: center;
-        font-size: 1.3em;
-        font-weight: 500;
-        margin-bottom: 5px;
-    }
+.team-names {
+    text-align: center;
+    font-size: 1.3em;
+    font-weight: 500;
+    margin-bottom: 5px;
+}
 
-    .live-detail {
-        font-size: 1.1em;
-        color: #FF4B4B;
-        text-align: center;
-        margin-top: -10px;
-        margin-bottom: 10px;
-    }
+.status-discreto {
+    font-size: 0.9em;
+    color: #6c757d;
+    text-align: center;
+    margin-top: 5px;
+    margin-bottom: 5px;
+}
 
-    .status-discreto {
-        font-size: 0.9em;
-        color: #6c757d;
-        text-align: center;
-        margin-top: 5px;
-        margin-bottom: 5px;
-    }
+.game-block {
+    margin-bottom: 40px;
+}
 
-    .game-block {
-        margin-bottom: 40px;
-    }
+/* aproxima logos do placar diretamente */
+img[data-testid="stImage"] {
+    margin: 0px -8px !important;
+    padding: 0 !important;
+}
 
-    /* força os logos ficarem o mais próximos possível do placar */
-    div[data-testid="column"] {
-        padding-left: 0px !important;
-        padding-right: 0px !important;
-    }
+/* força colunas internas a não criarem espaçamento */
+div[data-testid="column"] {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
 
-    /* Ajuste adicional: remove margens invisíveis */
-    .st-emotion-cache-1v0mbdj, .st-emotion-cache-ocqkz7 {
-        padding-left: 0px !important;
-        padding-right: 0px !important;
-        margin-left: -4px !important;
-        margin-right: -4px !important;
-    }
-
-    .dataframe td {
-        text-align: center;
-        font-size: 0.95em;
-    }
+/* tabela */
+.dataframe td {
+    text-align: center;
+    font-size: 0.95em;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -156,12 +138,12 @@ def get_event_data(event):
 @st.cache_data(ttl=60)
 def load_data(api_url):
     try:
-        response = requests.get(api_url)
-        response.raise_for_status()
-        events = response.json().get('events', [])
-        return pd.DataFrame([get_event_data(event) for event in events])
+        r = requests.get(api_url)
+        r.raise_for_status()
+        events = r.json().get('events', [])
+        return pd.DataFrame([get_event_data(e) for e in events])
     except Exception:
-        st.error("Erro ao carregar os dados da API. Verifique a URL e a conexão.")
+        st.error("Erro ao carregar dados da API.")
         return pd.DataFrame()
 
 def display_games(df, title, num_cols=4):
@@ -199,8 +181,8 @@ def display_games(df, title, num_cols=4):
 
                 st.markdown(f"<p class='team-names'>{casa_nome_tag} vs {visitante_nome_tag}</p>", unsafe_allow_html=True)
 
-                # todas as categorias (ao vivo, agendado, finalizado) usam o mesmo layout
-                col_home, col_score, col_away = st.columns([1, 1.5, 1])
+                # logos colados no placar
+                col_home, col_score, col_away = st.columns([1, 1.2, 1])
                 with col_home:
                     st.image(get_logo_url(row['Casa']), width=55)
                 with col_score:
@@ -215,44 +197,41 @@ def main():
     st.title("🏈 NFL Results Dashboard")
     st.markdown("### Informações atualizadas sobre jogos da NFL (Temporada 2025)")
 
-    if st.button('🔄 Recarregar Dados'):
+    if st.button("🔄 Recarregar Dados"):
         st.cache_data.clear()
         st.rerun()
 
-    df_events = load_data(API_URL_EVENTS_2025)
-    if df_events.empty:
-        st.warning("Nenhum dado disponível. Verifique a API.")
+    df = load_data(API_URL_EVENTS_2025)
+    if df.empty:
+        st.warning("Nenhum dado disponível.")
         return
 
-    df_in_progress = df_events[df_events['Status'].str.contains('Em Andamento')]
-    df_scheduled = df_events[df_events['Status'].str.contains('Agendado')]
-    df_finalized = df_events[df_events['Status'].str.startswith('Finalizado')]
+    df_in = df[df['Status'].str.contains('Em Andamento')]
+    df_ag = df[df['Status'].str.contains('Agendado')]
+    df_fin = df[df['Status'].str.startswith('Finalizado')]
 
-    if not df_in_progress.empty:
-        display_games(df_in_progress, "🔴 Jogos Ao Vivo", num_cols=4)
-    if not df_scheduled.empty:
-        display_games(df_scheduled, "⏳ Próximos Jogos", num_cols=4)
-    if not df_finalized.empty:
-        display_games(df_finalized, "✅ Resultados Recentes", num_cols=4)
+    for subset, title in [(df_in, "🔴 Jogos Ao Vivo"), (df_ag, "⏳ Próximos Jogos"), (df_fin, "✅ Resultados Recentes")]:
+        if not subset.empty:
+            display_games(subset, title)
 
     st.markdown("---")
     hoje = datetime.now()
     inicio_semana = hoje - timedelta(days=hoje.weekday())
     fim_semana = inicio_semana + timedelta(days=6)
-    periodo_txt = f"{inicio_semana.strftime('%d/%m')} a {fim_semana.strftime('%d/%m')}"
-    st.header(f"📅 Resultados da Semana Atual da NFL ({periodo_txt})")
+    periodo = f"{inicio_semana.strftime('%d/%m')} a {fim_semana.strftime('%d/%m')}"
+    st.header(f"📅 Resultados da Semana Atual da NFL ({periodo})")
 
-    df_sorted = df_events.sort_values(by="Data", ascending=True)
+    df_sorted = df.sort_values(by="Data", ascending=True)
 
-    def highlight_winners(row):
+    def highlight(row):
         if row['Vencedor'] == row['Casa']:
             return ['background-color: #1b4722; color: #4CAF50'] * len(row)
         elif row['Vencedor'] == row['Visitante']:
             return ['background-color: #471b1b; color: #FF4B4B'] * len(row)
         return [''] * len(row)
 
-    styled = df_sorted.style.apply(highlight_winners, axis=1)
+    styled = df_sorted.style.apply(highlight, axis=1)
     st.dataframe(styled, use_container_width=True, hide_index=True)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
