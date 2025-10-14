@@ -23,13 +23,13 @@ st.markdown("""
     .winner { color: #4CAF50; font-weight: bold; }
     .loser { color: #FF4B4B; font-weight: normal; }
 
-    /* Pontuação maior e mais próxima dos logos */
+    /* Pontuação ainda maior e logos praticamente colados */
     .score-display {
         text-align: center;
-        font-size: 3.6em;  /* Aumentado */
-        font-weight: 800;  /* Mais grosso */
-        margin: 0px 0;
-        letter-spacing: -1px; /* aproxima os números */
+        font-size: 4em;  /* mais destaque */
+        font-weight: 900;
+        margin: -5px 0;
+        letter-spacing: -2px;
     }
 
     .team-names {
@@ -55,25 +55,30 @@ st.markdown("""
         margin-bottom: 5px;
     }
 
-    /* Espaçamento maior entre jogos */
     .game-block {
         margin-bottom: 40px;
     }
 
-    /* Ajuste visual: aproxima logos do placar */
-    .st-emotion-cache-ocqkz7, .st-emotion-cache-1v0mbdj {
-        padding-left: 2px !important;
-        padding-right: 2px !important;
+    /* força os logos ficarem o mais próximos possível do placar */
+    div[data-testid="column"] {
+        padding-left: 0px !important;
+        padding-right: 0px !important;
     }
 
-    /* Destaque na tabela */
+    /* Ajuste adicional: remove margens invisíveis */
+    .st-emotion-cache-1v0mbdj, .st-emotion-cache-ocqkz7 {
+        padding-left: 0px !important;
+        padding-right: 0px !important;
+        margin-left: -4px !important;
+        margin-right: -4px !important;
+    }
+
     .dataframe td {
         text-align: center;
         font-size: 0.95em;
     }
 </style>
 """, unsafe_allow_html=True)
-
 
 API_URL_EVENTS_2025 = "https://partners.api.espn.com/v2/sports/football/nfl/events?dates=2025"
 
@@ -104,7 +109,6 @@ def get_event_data(event):
         status_type = status.get('type', {})
         status_text = str(status_type).lower()
 
-        # --- Status unificado ---
         if 'final' in status_text:
             status_pt = 'Finalizado (Prorrogação)' if 'ot' in status_text else 'Finalizado'
         elif status_type.get('state') == 'in':
@@ -160,11 +164,9 @@ def load_data(api_url):
         st.error("Erro ao carregar os dados da API. Verifique a URL e a conexão.")
         return pd.DataFrame()
 
-# --- EXIBIÇÃO ---
 def display_games(df, title, num_cols=4):
     if df.empty:
         return
-
     st.header(title)
 
     for i in range(0, len(df), num_cols):
@@ -173,12 +175,11 @@ def display_games(df, title, num_cols=4):
         if chunk.empty:
             continue
 
-        cols = st.columns(len(chunk), gap="small")  # gap reduzido
+        cols = st.columns(len(chunk), gap="small")
 
         for col, (_, row) in zip(cols, chunk.iterrows()):
             with col:
                 st.markdown("<div class='game-block'>", unsafe_allow_html=True)
-
                 casa_nome_tag = f"<span>{row['Casa']}</span>"
                 visitante_nome_tag = f"<span>{row['Visitante']}</span>"
                 casa_score_tag = f"<span>{row['Score Casa']}</span>"
@@ -196,27 +197,20 @@ def display_games(df, title, num_cols=4):
                         casa_nome_tag = f"<span class='loser'>{row['Casa']}</span>"
                         casa_score_tag = f"<span class='loser'>{row['Score Casa']}</span>"
 
-                st.markdown(
-                    f"<p class='team-names'>{casa_nome_tag} vs {visitante_nome_tag}</p>",
-                    unsafe_allow_html=True
-                )
+                st.markdown(f"<p class='team-names'>{casa_nome_tag} vs {visitante_nome_tag}</p>", unsafe_allow_html=True)
 
-                col_home, col_score, col_away = st.columns([1, 1.8, 1])  # colunas mais próximas
+                # todas as categorias (ao vivo, agendado, finalizado) usam o mesmo layout
+                col_home, col_score, col_away = st.columns([1, 1.5, 1])
                 with col_home:
                     st.image(get_logo_url(row['Casa']), width=55)
                 with col_score:
-                    st.markdown(
-                        f"<p class='score-display'>{casa_score_tag} - {visitante_score_tag}</p>",
-                        unsafe_allow_html=True
-                    )
+                    st.markdown(f"<p class='score-display'>{casa_score_tag} - {visitante_score_tag}</p>", unsafe_allow_html=True)
                 with col_away:
                     st.image(get_logo_url(row['Visitante']), width=55)
 
                 st.markdown(f"<p class='status-discreto'>{row['Status']}</p>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
 
-
-# --- MAIN ---
 def main():
     st.title("🏈 NFL Results Dashboard")
     st.markdown("### Informações atualizadas sobre jogos da NFL (Temporada 2025)")
@@ -241,14 +235,11 @@ def main():
     if not df_finalized.empty:
         display_games(df_finalized, "✅ Resultados Recentes", num_cols=4)
 
-    # --- HISTÓRICO COMPLETO (semana atual) ---
     st.markdown("---")
-
     hoje = datetime.now()
     inicio_semana = hoje - timedelta(days=hoje.weekday())
     fim_semana = inicio_semana + timedelta(days=6)
     periodo_txt = f"{inicio_semana.strftime('%d/%m')} a {fim_semana.strftime('%d/%m')}"
-
     st.header(f"📅 Resultados da Semana Atual da NFL ({periodo_txt})")
 
     df_sorted = df_events.sort_values(by="Data", ascending=True)
