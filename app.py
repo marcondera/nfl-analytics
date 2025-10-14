@@ -1,13 +1,11 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import requests
 from dateutil.parser import isoparse
 from datetime import datetime, timedelta
 import json
-import html
 
-# Streamlit page config
+# --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="NFL Results Dashboard — Redesigned", layout="wide", page_icon="🏈")
 
 API_URL_EVENTS_2025 = "https://partners.api.espn.com/v2/sports/football/nfl/events?dates=2025"
@@ -96,43 +94,44 @@ def load_events(api_url):
 # ---------- UI ----------
 st.markdown("<h1 style='margin-bottom:4px'>🏈 NFL Results — Redesigned</h1>", unsafe_allow_html=True)
 
-# Week header
+# Semana atual
 hoje = datetime.now()
 inicio_semana = hoje - timedelta(days=hoje.weekday())
 fim_semana = inicio_semana + timedelta(days=6)
 periodo_txt = f"{inicio_semana.strftime('%d/%m')} → {fim_semana.strftime('%d/%m')}"
 st.markdown(f"<h3 style='color:#bfc7d6; margin-top:0'>📅 Resultados da Semana Atual ({periodo_txt})</h3>", unsafe_allow_html=True)
 
+# Botão de recarregar
 if st.button("🔄 Recarregar dados"):
     st.cache_data.clear()
-    st.experimental_rerun()
+    st.rerun()  # <- substitui o antigo experimental_rerun
 
 events = load_events(API_URL_EVENTS_2025)
-
 if not events:
-    st.warning("Nenhum dado disponível — verifique a API ou a conexão.")
+    st.warning("Nenhum dado disponível — verifique a API.")
     st.stop()
 
-# Group by status for display order: in progress, scheduled, finalized
-in_progress = [e for e in events if "Andamento" in e['status'] or "Em Andamento" in e['status']]
+# Agrupar por status
+in_progress = [e for e in events if "Andamento" in e['status']]
 scheduled = [e for e in events if "Agendado" in e['status']]
 finalized = [e for e in events if e not in in_progress and e not in scheduled]
 
-display_order = [
-    ("🔴 Jogos Ao Vivo", in_progress),
-    ("⏳ Próximos Jogos", scheduled),
-    ("✅ Resultados Recentes", finalized)
-]
+payload = {"sections": [
+    {"title": "🔴 Jogos Ao Vivo", "games": in_progress},
+    {"title": "⏳ Próximos Jogos", "games": scheduled},
+    {"title": "✅ Resultados Recentes", "games": finalized}
+]}
 
-payload = {"sections": []}
-for title, lst in display_order:
-    payload["sections"].append({"title": title, "games": lst})
-
+# Histórico CSV download
 df_hist = pd.DataFrame(events)
-csv_bytes = df_hist.to_csv(index=False).encode('utf-8')
-st.download_button("📥 Baixar histórico (CSV)", data=csv_bytes, file_name="nfl_history.csv", mime="text/csv")
+st.download_button(
+    "📥 Baixar histórico (CSV)",
+    data=df_hist.to_csv(index=False).encode("utf-8"),
+    file_name="nfl_history.csv",
+    mime="text/csv"
+)
 
-# NOTE: use a non-f-string literal and then replace placeholders to avoid Python f-string braces problems
+# HTML Template seguro
 html_template = """
 <!doctype html>
 <html>
@@ -141,153 +140,58 @@ html_template = """
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
 <style>
-  :root{
-    --bg:#0e1117;
-    --card:#11151b;
-    --muted:#9aa4b2;
-    --accent:#4CAF50;
-    --danger:#FF4B4B;
-    --glass: rgba(255,255,255,0.03);
-  }
-  html,body{background:var(--bg); color:#fff; font-family:Inter,system-ui,Segoe UI,Roboto;}
-  .wrap{padding:18px; box-sizing:border-box;}
-  .section-title{font-size:20px; color:#e6eef8; margin:12px 0 10px; display:flex; align-items:center; gap:10px}
-  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:40px 18px; align-items:start;}
-  .card{
-    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
-    border-radius:12px; padding:16px; box-shadow: 0 6px 18px rgba(0,0,0,0.6);
-    border: 1px solid rgba(255,255,255,0.03);
-    display:flex; flex-direction:column; gap:10px;
-  }
-  .meta{display:flex; justify-content:space-between; align-items:center; color:var(--muted); font-size:13px;}
-  .teams{display:flex; align-items:center; justify-content:center; gap:8px;}
-  .team{display:flex; align-items:center; gap:8px; min-width:0;}
-  .logo{width:56px; height:56px; object-fit:contain; display:block; margin:0;}
-  .logo.left{margin-right:-12px}
-  .logo.right{margin-left:-12px}
-  .score-wrap{display:flex; align-items:center; justify-content:center; gap:6px; min-width:120px;}
-  .score{font-size:3.6rem; font-weight:900; line-height:0.9; letter-spacing:-2px; color:#fff;}
-  .team-name{font-weight:600; font-size:0.95rem; color:#dfe8f5; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:70px; text-align:center;}
-  .status{text-align:center; color:var(--muted); font-size:0.9rem; margin-top:6px;}
-  .row-center{display:flex; align-items:center; justify-content:center; gap:12px;}
-  .winner-badge{background:linear-gradient(90deg,var(--accent),#2fa14f); color:#04120a; font-weight:800;
-                 padding:4px 8px; border-radius:999px; font-size:0.8rem;}
-  .loser-text{color:var(--danger); font-weight:600;}
-  .hist-wrap{margin-top:24px;}
-  table.hist{width:100%; border-collapse:collapse; font-size:0.95rem;}
-  table.hist th, table.hist td{padding:10px; text-align:center; border-bottom:1px solid rgba(255,255,255,0.03);}
-  table.hist th{color:var(--muted); font-weight:600; font-size:0.85rem;}
-  .winner-cell{color:var(--accent); font-weight:800;}
-  .loser-cell{color:var(--danger); opacity:0.95; font-weight:700;}
-  @media (max-width:560px){ .score{font-size:2.4rem} .logo{width:44px;height:44px} .team-name{max-width:60px} }
+:root{--bg:#0e1117;--card:#11151b;--muted:#9aa4b2;--accent:#4CAF50;--danger:#FF4B4B;}
+body{background:var(--bg);color:#fff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;}
+.wrap{padding:20px;}
+.section-title{font-size:20px;color:#e6eef8;margin:12px 0 10px;}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:36px 16px;}
+.card{background:rgba(255,255,255,0.03);border-radius:12px;padding:16px;box-shadow:0 4px 12px rgba(0,0,0,0.4);}
+.meta{font-size:13px;color:var(--muted);margin-bottom:6px;display:flex;justify-content:space-between;}
+.row-center{display:flex;align-items:center;justify-content:center;gap:10px;}
+.team{display:flex;align-items:center;gap:8px;}
+.logo{width:56px;height:56px;object-fit:contain;}
+.score{font-size:3.4rem;font-weight:900;line-height:0.9;margin:0;}
+.team-name{font-weight:600;font-size:1rem;color:#dfe8f5;max-width:70px;overflow:hidden;text-overflow:ellipsis;text-align:center;}
+.status{text-align:center;color:var(--muted);font-size:0.9rem;margin-top:8px;}
+.winner-cell{color:var(--accent);font-weight:800;}
+.loser-cell{color:var(--danger);}
+@media(max-width:560px){.score{font-size:2.4rem}.logo{width:44px;height:44px}.team-name{max-width:60px}}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div id="sections"></div>
-
-  <div class="hist-wrap">
-    <h3 style="margin:8px 0 10px; color:#e6eef8">📜 Histórico Completo (Semana Atual: {PERIODO_TXT})</h3>
-    <div style="overflow:auto; border-radius:10px; padding:8px; background:var(--glass);">
-      <table class="hist" id="hist-table">
-        <thead>
-          <tr><th>Data</th><th>Jogo</th><th>Casa</th><th>Pts</th><th>Visitante</th><th>Pts</th><th>Status</th></tr>
-        </thead>
-        <tbody id="hist-body"></tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
+<div class="wrap" id="root"></div>
 <script>
-(function(){
-  const payload = {HTML_PAYLOAD};
-  const secRoot = document.getElementById('sections');
+const payload = PAYLOAD_JSON;
+const root = document.getElementById('root');
 
-  function makeCard(g){
-    const c = document.createElement('div');
-    c.className = 'card';
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-    meta.innerHTML = `<div style="font-size:13px;color:var(--muted)">${g.date}</div>
-                      <div>${g.status.includes('Finalizado') ? '<span class="winner-badge">Resultado</span>' : ''}</div>`;
-    c.appendChild(meta);
-
-    const teams = document.createElement('div');
-    teams.className = 'row-center';
-
-    const tleft = document.createElement('div');
-    tleft.className = 'team';
-    tleft.innerHTML = `<img class="logo left" src="${'${home_logo}'}" alt="${'${home}'}"/><div class="team-name">${'${home}'}</div>`.replace('\\${home_logo}',''+g.home_logo).replace('\\${home}',''+g.home);
-
-    const scorewrap = document.createElement('div');
-    scorewrap.className = 'score-wrap';
-    let leftClass = '';
-    let rightClass = '';
-    if(g.winner && g.winner !== 'Empate' && g.status.includes('Finalizado')){
-      if(g.winner === g.home) leftClass = 'winner-cell'; else if(g.winner===g.away) rightClass='winner-cell';
-    }
-    scorewrap.innerHTML = `<div class="score"><span class="${leftClass}">${g.home_score}</span> <span style="opacity:0.6; font-size:0.6em; font-weight:700; margin:0 4px">-</span> <span class="${rightClass}">${g.away_score}</span></div>`;
-
-    const tright = document.createElement('div');
-    tright.className = 'team';
-    tright.innerHTML = `<div class="team-name">${'${away}'}</div><img class="logo right" src="${'${away_logo}'}" alt="${'${away}'}"/>`.replace('\\${away}',''+g.away).replace('\\${away_logo}',''+g.away_logo);
-
-    teams.appendChild(tleft);
-    teams.appendChild(scorewrap);
-    teams.appendChild(tright);
-
-    c.appendChild(teams);
-
-    const s = document.createElement('div');
-    s.className = 'status';
-    s.textContent = g.status;
-    c.appendChild(s);
-
-    return c;
-  }
-
-  payload.sections.forEach(section=>{
-    if(!section.games || section.games.length===0) return;
-    const title = document.createElement('div');
-    title.className = 'section-title';
-    title.innerHTML = `<strong>${section.title}</strong>`;
-    secRoot.appendChild(title);
-
-    const grid = document.createElement('div');
-    grid.className = 'grid';
-    section.games.forEach(g => {
-      grid.appendChild(makeCard(g));
-    });
-    secRoot.appendChild(grid);
+payload.sections.forEach(section=>{
+  if(!section.games || section.games.length===0) return;
+  const title=document.createElement('div');
+  title.className='section-title';
+  title.textContent=section.title;
+  root.appendChild(title);
+  const grid=document.createElement('div');
+  grid.className='grid';
+  section.games.forEach(g=>{
+    const card=document.createElement('div');
+    card.className='card';
+    card.innerHTML=`
+      <div class="meta">${g.date} <span>${g.status.includes('Finalizado')?'🏁':''}</span></div>
+      <div class="row-center">
+        <div class="team"><img class="logo" src="${g.home_logo}"><div class="team-name">${g.home}</div></div>
+        <div class="score"><span>${g.home_score}</span><span style="opacity:0.6">-</span><span>${g.away_score}</span></div>
+        <div class="team"><div class="team-name">${g.away}</div><img class="logo" src="${g.away_logo}"></div>
+      </div>
+      <div class="status">${g.status}</div>`;
+    grid.appendChild(card);
   });
-
-  const histBody = document.getElementById('hist-body');
-  payload.sections.flatMap(s=>s.games).forEach(g=>{
-    const tr = document.createElement('tr');
-    const homeClass = (g.winner === g.home && g.status.includes('Finalizado')) ? 'winner-cell' : (g.winner === g.away && g.status.includes('Finalizado')) ? 'loser-cell' : '';
-    const awayClass = (g.winner === g.away && g.status.includes('Finalizado')) ? 'winner-cell' : (g.winner === g.home && g.status.includes('Finalizado')) ? 'loser-cell' : '';
-    tr.innerHTML = `<td>${g.date}</td>
-                    <td>${g.name}</td>
-                    <td class="${homeClass}">${g.home}</td>
-                    <td class="${homeClass}">${g.home_score}</td>
-                    <td class="${awayClass}">${g.away}</td>
-                    <td class="${awayClass}">${g.away_score}</td>
-                    <td>${g.status}</td>`;
-    histBody.appendChild(tr);
-  });
-
-})();
+  root.appendChild(grid);
+});
 </script>
 </body>
 </html>
 """
 
-# prepare payload and periodo text safely
-payload_json = json.dumps(payload)
-# escape js string by embedding JSON safely (we'll inject as JSON literal)
-html_with_payload = html_template.replace("{HTML_PAYLOAD}", html.escape(payload_json))
-html_with_payload = html_with_payload.replace("{PERIODO_TXT}", html.escape(periodo_txt))
-
-# render component
-st.components.v1.html(html_with_payload, height=900, scrolling=True)
+# Injetar JSON sem escapar (string normal)
+html_code = html_template.replace("PAYLOAD_JSON", json.dumps(payload))
+st.components.v1.html(html_code, height=None, scrolling=True)
