@@ -23,11 +23,13 @@ st.markdown("""
     .winner { color: #4CAF50; font-weight: bold; }
     .loser { color: #FF4B4B; font-weight: normal; }
 
+    /* Pontuação maior e mais próxima dos logos */
     .score-display {
         text-align: center;
-        font-size: 2.8em;
-        font-weight: bold;
-        margin: 5px 0;
+        font-size: 3.6em;  /* Aumentado */
+        font-weight: 800;  /* Mais grosso */
+        margin: 0px 0;
+        letter-spacing: -1px; /* aproxima os números */
     }
 
     .team-names {
@@ -56,6 +58,12 @@ st.markdown("""
     /* Espaçamento maior entre jogos */
     .game-block {
         margin-bottom: 40px;
+    }
+
+    /* Ajuste visual: aproxima logos do placar */
+    .st-emotion-cache-ocqkz7, .st-emotion-cache-1v0mbdj {
+        padding-left: 2px !important;
+        padding-right: 2px !important;
     }
 
     /* Destaque na tabela */
@@ -97,9 +105,6 @@ def get_event_data(event):
         status_text = str(status_type).lower()
 
         # --- Status unificado ---
-        status_pt = 'Status Desconhecido'
-        detalhe_status = ''
-
         if 'final' in status_text:
             status_pt = 'Finalizado (Prorrogação)' if 'ot' in status_text else 'Finalizado'
         elif status_type.get('state') == 'in':
@@ -168,7 +173,7 @@ def display_games(df, title, num_cols=4):
         if chunk.empty:
             continue
 
-        cols = st.columns(len(chunk), gap="large")
+        cols = st.columns(len(chunk), gap="small")  # gap reduzido
 
         for col, (_, row) in zip(cols, chunk.iterrows()):
             with col:
@@ -196,16 +201,16 @@ def display_games(df, title, num_cols=4):
                     unsafe_allow_html=True
                 )
 
-                col_home, col_score, col_away = st.columns([1, 2, 1])
+                col_home, col_score, col_away = st.columns([1, 1.8, 1])  # colunas mais próximas
                 with col_home:
-                    st.image(get_logo_url(row['Casa']), width=60)
+                    st.image(get_logo_url(row['Casa']), width=55)
                 with col_score:
                     st.markdown(
                         f"<p class='score-display'>{casa_score_tag} - {visitante_score_tag}</p>",
                         unsafe_allow_html=True
                     )
                 with col_away:
-                    st.image(get_logo_url(row['Visitante']), width=60)
+                    st.image(get_logo_url(row['Visitante']), width=55)
 
                 st.markdown(f"<p class='status-discreto'>{row['Status']}</p>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
@@ -240,15 +245,14 @@ def main():
     st.markdown("---")
 
     hoje = datetime.now()
-    inicio_semana = hoje - timedelta(days=hoje.weekday())  # segunda
-    fim_semana = inicio_semana + timedelta(days=6)         # domingo
+    inicio_semana = hoje - timedelta(days=hoje.weekday())
+    fim_semana = inicio_semana + timedelta(days=6)
     periodo_txt = f"{inicio_semana.strftime('%d/%m')} a {fim_semana.strftime('%d/%m')}"
 
     st.header(f"📅 Resultados da Semana Atual da NFL ({periodo_txt})")
 
     df_sorted = df_events.sort_values(by="Data", ascending=True)
 
-    # Colorir vencedor/perdedor
     def highlight_winners(row):
         if row['Vencedor'] == row['Casa']:
             return ['background-color: #1b4722; color: #4CAF50'] * len(row)
