@@ -114,12 +114,13 @@ payload = {"sections": [
     {"title": "📅 Histórico Completo da Temporada", "games": events}
 ]}
 
+# --- HTML TEMPLATE ---
 html_template = """
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -132,7 +133,7 @@ html_template = """
 body {
   background: var(--bg);
   color: #fff;
-  font-family: Inter, sans-serif;
+  font-family: 'Inter', sans-serif;
   margin: 0;
   padding: 0;
   overflow-x: hidden;
@@ -154,52 +155,47 @@ body {
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 26px;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: 28px;
 }
 .card {
   background: var(--card);
   border-radius: 14px;
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  padding: 20px;
   text-align: center;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 .card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+  box-shadow: 0 8px 22px rgba(0,0,0,0.55);
 }
 .meta {
   font-size: 0.85rem;
   color: var(--muted);
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 .teams {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  width: 100%;
 }
 .team {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 70px;
+  width: 80px;
 }
 .logo {
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
   border-radius: 12px;
   background: #fff;
+  overflow: hidden;
   display: flex;
   justify-content: center;
   align-items: center;
-  overflow: hidden;
-  padding: 4px;
-  box-sizing: border-box;
+  padding: 5px;
 }
 .logo img {
   width: 100%;
@@ -207,15 +203,17 @@ body {
   object-fit: contain;
 }
 .score {
-  font-size: 3rem;
+  font-size: 3.6rem;
   font-weight: 900;
-  margin: 0 6px;
+  margin: 0 8px;
   color: #fff;
+  white-space: nowrap;
+  line-height: 1;
 }
 .status {
   color: var(--muted);
   font-size: 0.9rem;
-  margin-top: 10px;
+  margin-top: 12px;
 }
 table {
   width: 100%;
@@ -226,23 +224,17 @@ table {
 }
 th, td {
   border-bottom: 1px solid rgba(255,255,255,0.08);
-  padding: 8px 6px;
+  padding: 10px 6px;
   text-align: center;
 }
 th {
   color: var(--muted);
 }
-.winner {
-  color: var(--accent);
-  font-weight: 800;
-}
-.loser {
-  color: var(--danger);
-  font-weight: 700;
-}
-@media (max-width:600px) {
-  .score { font-size: 2.2rem; }
-  .logo { width: 48px; height: 48px; }
+.winner { color: var(--accent); font-weight: 800; }
+.loser { color: var(--danger); font-weight: 700; }
+@media (max-width: 600px) {
+  .score { font-size: 2.6rem; }
+  .logo { width: 52px; height: 52px; }
 }
 </style>
 </head>
@@ -259,9 +251,9 @@ payload.sections.forEach(section => {
   const h2 = document.createElement("h2");
   h2.textContent = section.title;
   div.appendChild(h2);
+
   const grid = document.createElement("div");
   grid.className = "grid";
-
   section.games.forEach(g => {
     const card = document.createElement("div");
     card.className = "card";
@@ -317,4 +309,4 @@ payload.sections.forEach(section => {
 """
 
 html_code = html_template.replace("PAYLOAD_JSON", json.dumps(payload))
-st.components.v1.html(html_code, height=2400, scrolling=False)
+st.components.v1.html(html_code, height=3200, scrolling=False)
