@@ -2,17 +2,16 @@ import streamlit as st
 import pandas as pd
 import requests
 from dateutil.parser import isoparse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import json
 import math
 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="🏈 NFL Dashboard", layout="wide", page_icon="🏈")
 
-# Novo endpoint público da ESPN para placar e agenda
 API_URL_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
+API_URL_EVENTS = "https://partners.api.espn.com/v2/sports/football/nfl/events?dates=2025"
 
-# Mapa de logos (mantido)
 LOGO_MAP = {
     "SF": "sf", "BUF": "buf", "ATL": "atl", "BAL": "bal", "CAR": "car", "CIN": "cin",
     "CHI": "chi", "CLE": "cle", "DAL": "dal", "DEN": "den", "DET": "det", "GB": "gb",
@@ -32,19 +31,20 @@ def get_period_name(period):
 
 def parse_event_from_scoreboard(evt):
     """
-    Dado um evento da resposta do endpoint /scoreboard, extrai os campos necessários.
+    Dado um evento no formato da resposta do scoreboard ou evento detalhado,
+    extrai os campos que interessam para nosso dashboard.
     """
     try:
-        comp = evt.get('competitions', [])[0]
+        comp = evt.get('competitions', [])[0] if evt.get('competitions') else evt
         # data
         date_iso = comp.get('date')
         data_obj = isoparse(date_iso) if date_iso else None
         data_formatada = data_obj.strftime('%d/%m/%Y %H:%M') if data_obj else "N/A"
         # status
         status_obj = comp.get('status', {})
-        stype = status_obj.get('type', {}) or {}
+        stype = status_obj.get('type') or {}
         stype_state = stype.get('state')
-        # determinar status_PT e possivelmente detalhe
+        # status em pt
         status_pt = ""
         if stype_state == 'in':
             clock = status_obj.get('displayClock', '')
@@ -53,10 +53,8 @@ def parse_event_from_scoreboard(evt):
         elif stype_state == 'pre':
             status_pt = "Agendado"
         elif stype_state == 'post':
-            # finalizado
             status_pt = "Finalizado"
         else:
-            # fallback
             status_pt = stype.get('description', "Finalizado")
         # times e pontuações
         competitors = comp.get('competitors', [])
@@ -66,20 +64,16 @@ def parse_event_from_scoreboard(evt):
                 home = c
             elif c.get('homeAway') == 'away':
                 away = c
-        # se não tiver home/away explícito, usa a ordem da lista:
         if home is None and len(competitors) > 0:
             home = competitors[0]
         if away is None and len(competitors) > 1:
-            # Verifica se o primeiro já é home, se não, usa o segundo como away
-            if home and home.get('homeAway') == 'home':
-                away = competitors[1] if len(competitors) > 1 and competitors[1].get('homeAway') != 'home' else None
+            # se primeiro já é home, pega o segundo; senão, pega o outro
+            if home and home.get('homeAway') == 'home' and competitors[1].get('homeAway') != 'home':
+                away = competitors[1]
             elif not home:
-                 away = competitors[1]
-        
+                away = competitors[1]
         home_abbr = home.get('team', {}).get('abbreviation', 'CASA') if home else "CASA"
         away_abbr = away.get('team', {}).get('abbreviation', 'FORA') if away else "FORA"
-        
-        # scores
         home_score = int(home.get('score', 0)) if home and home.get('score') is not None else 0
         away_score = int(away.get('score', 0)) if away and away.get('score') is not None else 0
         # vencedor
@@ -104,13 +98,12 @@ def parse_event_from_scoreboard(evt):
             'away_logo': get_logo_url(away_abbr)
         }
     except Exception as e:
-        # falha silenciosa
         return None
 
 @st.cache_data(ttl=120)
-def load_events():
+def load_events_live():
     """
-    Usa o endpoint /scoreboard para capturar jogos agendados, em andamento e finalizados.
+    Usa o endpoint /scoreboard para capturar jogos agendados, em andamento e finalizados recentes.
     """
     try:
         resp = requests.get(API_URL_SCOREBOARD, timeout=10)
@@ -122,69 +115,102 @@ def load_events():
             p = parse_event_from_scoreboard(e)
             if p:
                 parsed.append(p)
-        # ordenar por timestamp
         parsed.sort(key=lambda x: x['timestamp'] or "")
         return parsed
     except Exception as e:
-        st.error(f"Erro carregando eventos: {e}")
+        st.error(f"Erro carregando eventos ao vivo: {e}")
         return []
 
-# --- CORREÇÃO DA LÓGICA SEMANAL ---
-# Encontrar o timestamp mais antigo para definir o início da 'Semana 1' da série de dados.
-events = load_events()
+@st.cache_data(ttl=3600)
+def load_events_historical():
+    """
+    Carrega os eventos históricos da temporada (usando endpoint events?dates=2025).
+    """
+    try:
+        resp = requests.get(API_URL_EVENTS, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        events_raw = data.get('events', [])
+        all_events = []
+        for e in events_raw:
+            # Para pegar detalhes completos, usar o link $ref
+            comp_url = e.get('$ref')
+            if not comp_url:
+                # se não tiver $ref, talvez o próprio `e` já seja detalhado
+                parsed = parse_event_from_scoreboard(e)
+                if parsed:
+                    all_events.append(parsed)
+            else:
+                try:
+                    comp_resp = requests.get(comp_url, timeout=10)
+                    comp_resp.raise_for_status()
+                    full = comp_resp.json()
+                    parsed = parse_event_from_scoreboard(full)
+                    if parsed:
+                        all_events.append(parsed)
+                except Exception:
+                    continue
+        # ordenar por timestamp
+        all_events.sort(key=lambda x: x['timestamp'] or "")
+        return all_events
+    except Exception as e:
+        st.warning(f"Erro ao carregar eventos históricos: {e}")
+        return []
+
+# --- Combinação dos eventos live + históricos ---
+live_events = load_events_live()
+historical_events = load_events_historical()
+
+# usar dicionário para evitar duplicatas por ID
+events_by_id = {}
+for e in historical_events:
+    if e.get('id'):
+        events_by_id[e['id']] = e
+for e in live_events:
+    if e.get('id'):
+        events_by_id[e['id']] = e
+
+events = list(events_by_id.values())
+
 if not events:
     st.warning("Nenhum jogo disponível no momento.")
-    # Não interrompe para que o botão de atualização ainda funcione
 else:
+    # definir o início da temporada a partir do evento mais antigo
     try:
-        # Encontrar a data/timestamp mais antigo na lista de eventos
-        earliest_timestamp = min([e['timestamp'] for e in events if e.get('timestamp')], default=None)
-        season_start = isoparse(earliest_timestamp).date() if earliest_timestamp else datetime.now().date()
+        earliest_ts = min([e['timestamp'] for e in events if e.get('timestamp')])
+        season_start = isoparse(earliest_ts).date()
     except Exception:
         season_start = datetime.now().date()
 
 def week_of(dt_iso):
-    """Calcula o número da semana (intervalo de 7 dias) a partir do season_start."""
+    """Calcula número da semana a partir do season_start."""
     try:
         dt = isoparse(dt_iso).date()
-        d = (dt - season_start).days
-        # Garante que a primeira semana de 7 dias é a Semana 1.
-        # Usa math.floor para consistência e garante que a semana mínima seja 1.
-        week_num = math.floor(d / 7) + 1
-        return max(1, week_num)
+        delta = (dt - season_start).days
+        wk = math.floor(delta / 7) + 1
+        return max(1, wk)
     except:
-        return 1 # Fallback para Semana 1
+        return 1
 
-# ------------------ UI / Frontend ------------------
-st.markdown("<h1>🏈 NFL Dashboard (Scoreboard)</h1>", unsafe_allow_html=True)
-
-if st.button("🔄 Atualizar"):
-    st.cache_data.clear()
-    st.rerun()
-
-if not events:
-    st.stop()
-
-# separar listas
+# organizar as listas por status
 in_progress = [e for e in events if "Em Andamento" in e['status']]
 scheduled = [e for e in events if "Agendado" in e['status']]
 finalized = [e for e in events if e not in in_progress and e not in scheduled]
 
+# agrupar por semana
 weeks = {}
 for e in events:
     wk = week_of(e.get('timestamp', ""))
-    # Filtra Week 0/Semana 0
     if wk >= 1:
         weeks.setdefault(wk, []).append(e)
 
-# gerar classificação a partir de finalizados (mesma lógica que fizemos antes)
-def compute_standings(finalized_games):
+def compute_standings(final_games):
     stats = {}
-    for g in finalized_games:
+    for g in final_games:
         h = g['home']; a = g['away']
         hs = g['home_score']; as_ = g['away_score']
-        for t in (h,a):
-            stats.setdefault(t, {'team':t, 'W':0, 'L':0, 'T':0, 'PF':0, 'PA':0, 'games':[]})
+        for t in (h, a):
+            stats.setdefault(t, {'team': t, 'W':0, 'L':0, 'T':0, 'PF':0, 'PA':0, 'games': []})
         stats[h]['PF'] += hs
         stats[h]['PA'] += as_
         stats[a]['PF'] += as_
@@ -207,7 +233,7 @@ def compute_standings(finalized_games):
     rows = []
     for t, s in stats.items():
         gp = s['W'] + s['L'] + s['T']
-        wpct = (s['W'] + 0.5*s['T']) / gp if gp > 0 else 0
+        wpct = (s['W'] + 0.5 * s['T']) / gp if gp > 0 else 0
         streak = ""
         if s['games']:
             rev = s['games'][::-1]
@@ -221,17 +247,16 @@ def compute_standings(finalized_games):
             streak = f"{cur}{cnt}"
         rows.append({
             'Team': t, 'W': s['W'], 'L': s['L'], 'T': s['T'],
-            'PF': s['PF'], 'PA': s['PA'], 'Win%': round(wpct,3), 'Streak': streak
+            'PF': s['PF'], 'PA': s['PA'], 'Win%': round(wpct, 3), 'Streak': streak
         })
     rows.sort(key=lambda x: (x['Win%'], x['PF'] - x['PA']), reverse=True)
     return rows
 
 standings = compute_standings(finalized)
 
-# blowouts (maiores margens)
-def biggest_blowouts(finalized_games, top_n=5):
+def biggest_blowouts(final_games, top_n=5):
     arr = []
-    for g in finalized_games:
+    for g in final_games:
         diff = abs(g['home_score'] - g['away_score'])
         arr.append((diff, g))
     arr.sort(reverse=True, key=lambda x: x[0])
@@ -239,7 +264,7 @@ def biggest_blowouts(finalized_games, top_n=5):
 
 blowouts = biggest_blowouts(finalized, top_n=5)
 
-# preparar payload
+# payload para frontend
 payload = {
     "sections": [
         {"title": "🔴 Jogos Ao Vivo", "games": in_progress},
@@ -253,7 +278,8 @@ payload = {
 
 payload_json = json.dumps(payload)
 
-# HTML frontend embutido
+# HTML frontend (igual ao seu template anterior) — deixo como está,
+# apenas substituindo a parte de PAYLOAD_JSON
 html_template = """
 <!doctype html>
 <html>
@@ -276,10 +302,8 @@ body { background:var(--bg); color:#fff; font-family:Inter, sans-serif; margin:0
 .teams { display:flex; align-items:center; justify-content:center; gap:12px; width:100%; }
 .team { display:flex; flex-direction:column; align-items:center; }
 .logo { width:56px; height:56px; border-radius:10px; background:#fff; overflow:hidden; display:flex; align-items:center; justify-content:center; }
-/* CORREÇÃO DO LOGO: Adicionado padding para garantir contenção e evitar estouro visual */
 .logo img { width:100%; height:100%; object-fit:contain; padding: 4px; box-sizing: border-box;} 
 .score { font-size:2.4rem; font-weight:800; white-space:nowrap; margin:0 8px; }
-/* CORREÇÃO DO NOME: Limitado a largura para evitar que nomes longos quebrem o layout */
 .team-name { font-weight:600; max-width: 65px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
 .status { font-size:0.9rem; color:var(--muted); margin-top:8px; text-align:center; }
 .details { background:var(--card); border-radius:10px; padding:12px; }
@@ -290,7 +314,6 @@ body { background:var(--bg); color:#fff; font-family:Inter, sans-serif; margin:0
 .table th { color:var(--muted); font-weight:700; }
 .winner-text { color:var(--accent); font-weight:800; }
 .loser-text { color:var(--danger); font-weight:700; }
-/* NOVO: Classe para colorir o placar do time vencedor de verde */
 .winner-score { color: var(--accent); }
 .loser-score { color: #e6eef8; }
 @media(max-width:600px){ 
@@ -305,8 +328,6 @@ body { background:var(--bg); color:#fff; font-family:Inter, sans-serif; margin:0
 <script>
 const payload = PAYLOAD_JSON;
 const root = document.getElementById('root');
-
-// render sections
 payload.sections.forEach(sec=>{
     if(!sec.games || sec.games.length===0) return;
     const secDiv = document.createElement('div');
@@ -321,17 +342,12 @@ payload.sections.forEach(sec=>{
         card.className = 'card';
         const homeClass = (g.winner === g.home && g.status === 'Finalizado') ? 'winner-text' : '';
         const awayClass = (g.winner === g.away && g.status === 'Finalizado') ? 'winner-text' : '';
-        
-        // NOVO: Lógica para colorir o placar do vencedor
         let homeScoreClass = '';
         let awayScoreClass = '';
-
         if (g.status === 'Finalizado' && g.winner !== 'Empate') {
             homeScoreClass = g.winner === g.home ? 'winner-score' : 'loser-score';
             awayScoreClass = g.winner === g.away ? 'winner-score' : 'loser-score';
         }
-
-        // NOVO: Placar dividido em SPANs com classes condicionais
         card.innerHTML = `
             <div class="meta">${g.date}</div>
             <div class="teams">
@@ -347,16 +363,12 @@ payload.sections.forEach(sec=>{
     secDiv.appendChild(grid);
     root.appendChild(secDiv);
 });
-
-// weekly history collapsible
 const weeksRoot = document.createElement('div');
 const wSec = document.createElement('div');
 wSec.className = 'section';
 const wh = document.createElement('h2');
 wh.textContent = '📜 Histórico por Semana';
 wSec.appendChild(wh);
-
-// CORREÇÃO DA SEMANA: Garante que as semanas sejam ordenadas corretamente.
 Object.keys(payload.weeks).map(Number).sort((a,b)=>a-b).forEach(k=>{
     const arr = payload.weeks[k];
     if(!arr || arr.length===0) return;
@@ -380,8 +392,6 @@ Object.keys(payload.weeks).map(Number).sort((a,b)=>a-b).forEach(k=>{
     wSec.appendChild(block);
 });
 root.appendChild(wSec);
-
-// standings
 const stSec = document.createElement('div');
 stSec.className = 'section';
 const sth2 = document.createElement('h2');
@@ -406,8 +416,6 @@ if(payload.standings.length > 0){
 }
 stSec.appendChild(stDiv);
 root.appendChild(stSec);
-
-// blowouts
 const boSec = document.createElement('div');
 boSec.className = 'section';
 const boh = document.createElement('h2');
@@ -420,15 +428,12 @@ payload.blowouts.forEach(g=>{
     const winner = g.home_score > g.away_score ? g.home : (g.away_score > g.home_score ? g.away : '');
     const winnerHomeScoreClass = (g.home_score > g.away_score) ? 'winner-text' : '';
     const winnerAwayScoreClass = (g.away_score > g.home_score) ? 'winner-text' : '';
-
     const p = document.createElement('p');
-    // NOVO: Placar com classes de vencedor na seção de Blowouts
     p.innerHTML = `<span>${g.date}</span> — <span class="${winner===g.home?'winner-text':''}">${g.home}</span> <span class="${winnerHomeScoreClass}">${g.home_score}</span> - <span class="${winnerAwayScoreClass}">${g.away_score}</span> <span class="${winner===g.away?'winner-text':''}">${g.away}</span> <span class="small">· dif ${diff}</span>`;
     boDiv.appendChild(p);
 });
 boSec.appendChild(boDiv);
 root.appendChild(boSec);
-
 </script>
 </body>
 </html>
@@ -436,7 +441,6 @@ root.appendChild(boSec);
 
 html_code = html_template.replace("PAYLOAD_JSON", json.dumps(payload))
 
-# cálculo de altura para evitar corte
 num = len(events)
 rows = math.ceil(num / 3)
 height = min(800 + rows * 120, 9000)
