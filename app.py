@@ -11,7 +11,6 @@ from io import StringIO
 CURRENT_PFR_YEAR = 2025 
 
 # Configurações iniciais do Streamlit (título, layout)
-# ATENÇÃO: Adicionando unsafe_allow_html=True nas marcações para forçar a centralização precisa dos scores.
 st.set_page_config(page_title=f"🏈 NFL Dashboard {CURRENT_PFR_YEAR}", layout="wide", page_icon="🏈")
 
 
@@ -222,7 +221,12 @@ def display_standings(df_standings, conference_name):
     divisions = sorted(conf_df['Div'].unique())
 
     for div in divisions:
-        st.markdown(f"**Divisão {div}**", help="Tabela ordenada por Porcentagem de Vitória (PCT)") 
+        # Usando HTML/CSS para um cabeçalho de divisão mais moderno e com espaçamento
+        st.markdown(f"""
+            <h4 style="color: #6c757d; margin-top: 15px; margin-bottom: 5px; border-bottom: 1px solid #e9ecef;">
+                Divisão {div}
+            </h4>
+        """, unsafe_allow_html=True)
         
         div_df = conf_df[conf_df['Div'] == div].copy()
         
@@ -244,12 +248,12 @@ def display_standings(df_standings, conference_name):
                 "PCT": st.column_config.TextColumn("PCT", width="small"),
             }
         )
-    st.divider() # Adiciona separador após cada conferência
+    st.markdown("<br>", unsafe_allow_html=True) # Espaçamento após a conferência
 
 def display_scoreboard(df_pfr, current_week_espn=None):
     """
-    Exibe o placar formatado de forma compacta e com pontuações CENTRALIZADAS
-    dentro de cada cartão de jogo, usando HTML/CSS para forçar o alinhamento.
+    Exibe o placar formatado com HTML/CSS customizado para centralização
+    perfeita dos scores e um design moderno.
     """
 
     if df_pfr.empty:
@@ -275,7 +279,98 @@ def display_scoreboard(df_pfr, current_week_espn=None):
         st.info(f"Nenhum jogo encontrado para exibição nesta semana.")
         return
 
-    # Layout de 3 cards por linha
+    # Estilo CSS para o cartão de placar (usando Flexbox para centralização)
+    SCOREBOARD_CSS = """
+    <style>
+    /* Estilo do container do placar */
+    .scoreboard-card {
+        border-radius: 12px;
+        padding: 15px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        transition: transform 0.2s;
+        background: #f8f9fa; /* Fundo claro para contraste */
+    }
+    .scoreboard-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15);
+    }
+    /* Layout principal com Flexbox para centralização horizontal e vertical */
+    .game-layout {
+        display: flex;
+        align-items: center; /* Centraliza verticalmente todos os itens */
+        justify-content: space-between; /* Distribui o espaço entre os times e o placar */
+    }
+    /* Estilo do Score do time vencedor */
+    .score-winner {
+        font-size: 2.0em; /* Score grande */
+        font-weight: 700;
+        color: #1E90FF; /* Azul para o vencedor */
+        margin: 0;
+        padding: 0 10px;
+        line-height: 1; /* Alinhamento vertical forçado */
+    }
+    /* Estilo do Score do time perdedor */
+    .score-loser {
+        font-size: 2.0em;
+        font-weight: 500;
+        color: #6c757d; /* Cinza para o perdedor */
+        margin: 0;
+        padding: 0 10px;
+        line-height: 1;
+    }
+    /* Container central (Scores + VS) */
+    .score-container {
+        display: flex;
+        align-items: center;
+        justify-content: center; /* CENTRALIZAÇÃO DOS SCORES */
+        flex-grow: 1; /* Ocupa o espaço central */
+    }
+    .vs-text {
+        font-size: 1.2em;
+        font-weight: 800;
+        color: #dc3545; /* Vermelho vibrante */
+        margin: 0 5px;
+    }
+    /* Info do time (logo + sigla) */
+    .team-info {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        width: 30%; /* Controla a largura das colunas laterais */
+    }
+    .team-info img {
+        width: 45px;
+        height: 45px;
+        border-radius: 50%;
+        margin-bottom: 5px;
+        background: white; /* Fundo branco para logos com transparência */
+        padding: 3px;
+    }
+    .team-info strong {
+        font-size: 1.1em;
+        line-height: 1;
+    }
+    /* Status (Finalizado) */
+    .status-final {
+        text-align: right;
+        font-size: 0.9em;
+        color: #198754;
+        font-weight: bold;
+        margin-top: 10px;
+    }
+    .game-date {
+        font-size: 0.8em;
+        color: #6c757d;
+        margin-bottom: 10px;
+        border-bottom: 1px dashed #e9ecef;
+        padding-bottom: 5px;
+    }
+    </style>
+    """
+    st.markdown(SCOREBOARD_CSS, unsafe_allow_html=True)
+    
     num_cols = 3
     
     for i in range(0, len(games_list), num_cols):
@@ -291,50 +386,40 @@ def display_scoreboard(df_pfr, current_week_espn=None):
                 winner_pts = int(game['Winner_Pts'])
                 loser_pts = int(game['Loser_Pts'])
                 
+                # HTML para o cartão de placar moderno
+                game_html = f"""
+                <div class="scoreboard-card">
+                    <div class="game-date">
+                        🗓️ {game['Date_Full']}
+                    </div>
+                    <div class="game-layout">
+                        <!-- Vencedor -->
+                        <div class="team-info">
+                            <img src="{get_logo_url(winner_abbr)}" alt="{winner_abbr} Logo">
+                            <strong>{winner_abbr}</strong>
+                        </div>
+
+                        <!-- Scores CENTRALIZADOS com Flexbox -->
+                        <div class="score-container">
+                            <span class="score-winner">{winner_pts}</span>
+                            <span class="vs-text">VS</span>
+                            <span class="score-loser">{loser_pts}</span>
+                        </div>
+
+                        <!-- Perdedor -->
+                        <div class="team-info">
+                            <img src="{get_logo_url(loser_abbr)}" alt="{loser_abbr} Logo">
+                            <strong>{loser_abbr}</strong>
+                        </div>
+                    </div>
+                    <div class="status-final">
+                        <span style="color: #198754;">• FINALIZADO</span>
+                    </div>
+                </div>
+                """
+                
                 with cols[j]:
-                    with st.container(border=True):
-                        # Data do Jogo no topo
-                        st.caption(f":calendar: {game['Date_Full']}")
-                        
-                        # Layout principal para o placar: [Vencedor] | [Scores + VS] | [Perdedor]
-                        # Ajuste fino das colunas
-                        col_w_info, col_scores, col_l_info = st.columns([1.5, 2.5, 1.5]) 
-
-                        # 1. Info Vencedor
-                        with col_w_info:
-                            st.image(get_logo_url(winner_abbr), width=50)
-                            st.markdown(f"**{winner_abbr}**")
-
-                        # 2. Scores Centralizados - *** CORREÇÃO DE ALINHAMENTO COM HTML INLINE ***
-                        with col_scores:
-                            # 3 Colunas: [Score W] | [VS] | [Score L]
-                            # 1.0 vs 0.5 vs 1.0 para que o VS fique bem no centro da seção de scores
-                            col_score_w, col_vs_text, col_score_l = st.columns([1.0, 0.5, 1.0]) 
-                            
-                            # Força o alinhamento do score do Vencedor no centro da sua coluna
-                            with col_score_w:
-                                st.markdown(f"<h3 style='text-align: center; color: #1E90FF; font-size: 24px;'>{winner_pts}</h3>", 
-                                            unsafe_allow_html=True)
-                            
-                            # Força o alinhamento do VS no centro
-                            with col_vs_text:
-                                # Adiciona um pequeno margin-top para alinhar o VS verticalmente com os scores
-                                st.markdown("<p style='text-align: center; margin-top: 10px; font-weight: bold; color: red;'>VS</p>", 
-                                            unsafe_allow_html=True)
-
-                            # Força o alinhamento do score do Perdedor no centro da sua coluna
-                            with col_score_l:
-                                st.markdown(f"<h3 style='text-align: center; font-size: 24px;'>{loser_pts}</h3>", 
-                                            unsafe_allow_html=True)
-                            
-                        # 3. Info Perdedor
-                        with col_l_info:
-                            st.image(get_logo_url(loser_abbr), width=50)
-                            st.markdown(f"{loser_abbr}")
-                        
-                        # Linha de status
-                        st.divider()
-                        st.markdown(":heavy_check_mark: **FINALIZADO**")
+                    st.markdown(game_html, unsafe_allow_html=True)
 
 
 # --- CARREGAMENTO GLOBAL DE DADOS ---
@@ -346,7 +431,7 @@ current_week_espn, live_events = load_live_events_from_espn()
 # --- APLICAÇÃO PRINCIPAL (EXECUÇÃO) ---
 
 # Usando colunas para centralizar o conteúdo principal no layout 'wide'
-col_left, col_center, col_right = st.columns([1, 4, 1]) 
+col_left, col_center, col_right = st.columns([0.1, 4, 0.1]) 
 
 with col_center:
     st.title(f"🏈 :blue[Dashboard Histórico NFL] {CURRENT_PFR_YEAR}")
