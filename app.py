@@ -2,17 +2,20 @@ import streamlit as st
 import pandas as pd
 import requests
 from dateutil.parser import isoparse
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
 import math
 import re
-import numpy as np
+from io import StringIO
+import time
 
 # --- CONFIGURAÇÃO ---
-st.set_page_config(page_title="🏈 NFL Dashboard Histórico", layout="wide", page_icon="🏈")
 
-# Constante: Ano para buscar dados históricos no PFR
+# FORÇADO PARA 2025, conforme solicitado pelo usuário.
+# OBS: O PFR pode não ter o calendário completo de 2025/2026.
 CURRENT_PFR_YEAR = 2025 
+
+st.set_page_config(page_title=f"🏈 NFL Dashboard Histórico {CURRENT_PFR_YEAR}", layout="wide", page_icon="🏈")
 
 # Endpoints
 API_URL_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
@@ -29,7 +32,6 @@ LOGO_MAP = {
 }
 
 # Mapeamento de nomes completos/curtos do PFR para abreviações da ESPN (ajuste conforme necessário)
-# Este é um mapeamento crucial para o scraping. PFR é a chave, ESPN é o valor.
 PFR_ABBR_MAP = {
     '49ers': 'SF', 'Bills': 'BUF', 'Falcons': 'ATL', 'Ravens': 'BAL', 'Panthers': 'CAR', 'Bengals': 'CIN',
     'Bears': 'CHI', 'Browns': 'CLE', 'Cowboys': 'DAL', 'Broncos': 'DEN', 'Lions': 'DET', 'Packers': 'GB',
@@ -37,7 +39,7 @@ PFR_ABBR_MAP = {
     'Raiders': 'LV', 'Dolphins': 'MIA', 'Vikings': 'MIN', 'Patriots': 'NE', 'Saints': 'NO', 'Giants': 'NYG',
     'Jets': 'NYJ', 'Eagles': 'PHI', 'Steelers': 'PIT', 'Seahawks': 'SEA', 'Buccaneers': 'TB', 'Titans': 'TEN',
     'Cardinals': 'ARI', 'Commanders': 'WSH',
-    # PFR usa nomes completos ou abreviações inconsistentes, este mapeamento cobre o mais comum
+    # Nomes mais longos/inconsistentes
     'San Francisco': 'SF', 'Buffalo': 'BUF', 'Atlanta': 'ATL', 'Baltimore': 'BAL', 'Carolina': 'CAR', 'Cincinnati': 'CIN',
     'Chicago': 'CHI', 'Cleveland': 'CLE', 'Dallas': 'DAL', 'Denver': 'DEN', 'Detroit': 'DET', 'Green Bay': 'GB',
     'Houston': 'HOU', 'Indianapolis': 'IND', 'Jacksonville': 'JAX', 'Kansas City': 'KC', 'Los Angeles Chargers': 'LAC', 'Los Angeles Rams': 'LAR',
@@ -47,621 +49,257 @@ PFR_ABBR_MAP = {
 }
 
 def get_logo_url(abbreviation):
+    """Gera URL do logo baseada na abreviação."""
     abbr = LOGO_MAP.get(str(abbreviation).upper(), str(abbreviation).lower())
     return f"https://a.espncdn.com/i/teamlogos/nfl/500/{abbr}.png"
 
 def normalize_team_name(name):
-    """
-    Converte o nome do time PFR em abreviação ESPN.
-    Retorna o nome original se não for encontrado para que possamos detectar o N/A.
-    """
-    name = str(name).strip()
-    # Tenta mapear o nome completo ou partes dele
-    for key, abbr in PFR_ABBR_MAP.items():
-        if key.strip().lower() == name.lower():
-            return abbr
-    
-    # Tenta usar a última palavra como abreviação curta (ex: Eagles -> PHI)
-    last_word = name.split()[-1]
-    for key, abbr in PFR_ABBR_MAP.items():
-        if key.strip().lower() == last_word.lower():
-            return abbr
-            
-    return name.upper() # Fallback, que será 'N/A' se o nome for lixo
+    """Converte o nome do time PFR em abreviação ESPN."""
+    name_str = str(name).strip()
+    return PFR_ABBR_MAP.get(name_str, name_str)
 
-def get_period_name(period):
-    period_map = {1: "1º Quarto", 2: "2º Quarto", 3: "3º Quarto", 4: "4º Quarto"}
-    return period_map.get(period, "Prorrogação" if period > 4 else "")
-
-# --- FUNÇÃO DE CARREGAMENTO HISTÓRICO (PFR) ---
-@st.cache_data(ttl=60 * 60 * 24) # Cache PFR data por 1 dia
+@st.cache_data(ttl=3600)
 def load_historical_events_from_pfr(year):
     """
-    Raspa o cronograma e resultados da temporada do Pro-Football-Reference.
-    A lógica foi tornada mais robusta para identificar colunas mesmo que os nomes mudem.
-    """
-    url = f"https://www.pro-football-reference.com/years/{year}/games.htm"
-    st.info(f"Carregando histórico e cronograma completo da temporada {year} de Pro-Football-Reference...")
+    Carrega o histórico de eventos (jogos) do Pro-Football-Reference (PFR).
     
+    A tabela de jogos do PFR é frequentemente 'escondida' dentro de comentários HTML
+    para permitir funcionalidade de JavaScript, o que quebra o pd.read_html direto.
+    Esta função usa regex para "descomentar" o bloco da tabela antes de lê-lo,
+    resolvendo o erro de 'list index out of range'.
+    """
+    
+    pfr_url = f"https://www.pro-football-reference.com/years/{year}/games.htm"
+    st.info(f"Tentando carregar dados históricos do PFR para o ano: **{year}** a partir de `{pfr_url}`. Aguarde...")
+
     try:
-        # PFR tem um comentário HTML com a tabela que precisamos
-        html_content = requests.get(url, timeout=15).text
+        # 1. Busca o HTML
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        r = requests.get(pfr_url, headers=headers, timeout=10)
+        r.raise_for_status()
+        html_content = r.text
+
+        # 2. Usa Regex para encontrar e 'descomentar' a tabela principal ('games')
+        # Padrão: Busca qualquer conteúdo dentro de <!-- ... --> que contenha 'id="games"'.
+        pattern = re.compile(r'<!--(.*?)-->', re.DOTALL)
         
-        # Encontra o conteúdo comentado da tabela
-        match = re.search(r'<!--\s*<div class="table_container" id="div_games">.*?</table>\s*</div>\s*-->', html_content, re.DOTALL)
+        tables_html = None
         
-        if not match:
-            # Caso a tabela não esteja comentada (versão mais antiga do PFR)
-            df_list = pd.read_html(url)
-            if not df_list:
-                st.error("Não foi possível encontrar a tabela de jogos no PFR. Verifique o ano da temporada.")
-                return pd.DataFrame()
+        # Itera sobre todos os blocos comentados para encontrar o que contém a tabela 'games'
+        for match in pattern.findall(html_content):
+            if 'id="games"' in match:
+                tables_html = match
+                break
+        
+        if not tables_html:
+            st.warning("Não foi possível encontrar a tabela de jogos ('games') dentro dos comentários do PFR. O calendário pode não ter sido publicado para este ano, ou o formato mudou.")
+            return pd.DataFrame()
+
+        # 3. Lê o HTML descomentado
+        # Usamos StringIO para tratar a string como um arquivo
+        df_list = pd.read_html(StringIO(tables_html))
+        
+        # Assumindo que a primeira tabela válida na lista é a de jogos
+        if df_list:
             df = df_list[0]
-        else:
-             # Se a tabela estiver comentada, extrai e usa o conteúdo
-            table_html = match.group(0).replace('<!--', '').replace('-->', '').strip()
-            df = pd.read_html(table_html)[0]
-
-
-        # 1. Achata os cabeçalhos de coluna (MultiIndex) para strings únicas.
-        if isinstance(df.columns, pd.MultiIndex):
+            
+            # Limpeza e preparação dos dados
             df.columns = ['_'.join(col).strip() for col in df.columns.values]
-        else:
-            df.columns = [col.strip() for col in df.columns]
+            df.columns = [col.replace('Unnamed: 0_level_0_', '').replace('Unnamed: 1_level_0_', '') for col in df.columns]
 
-        # 2. Mapeamento de colunas dinâmico (mais robusto)
-        column_map = {}
-        
-        # Identifica a coluna 'Week' (Semana).
-        original_week_col = next((c for c in df.columns if 'Week' in c and 'Unnamed' in c), None)
-        if not original_week_col:
-            original_week_col = next((c for c in df.columns if 'Week' in c), None)
+            # Filtra linhas de cabeçalho repetidas
+            df = df[df['Week'] != 'Week'].copy()
             
-        if not original_week_col:
-            st.error("Coluna 'Week' (Semana) não encontrada na tabela do PFR. O formato do site pode ter mudado drasticamente.")
-            return []
-            
-        column_map[original_week_col] = 'Week'
-            
-        # Mapeamento das outras colunas essenciais
-        original_date_col = next((c for c in df.columns if 'Date' in c and 'Unnamed' in c), None)
-        if original_date_col: column_map[original_date_col] = 'Date'
-
-        # Busca por colunas que contenham "Winner/Tie" e "Loser/Tie" para maior flexibilidade
-        original_winner_col = next((c for c in df.columns if 'Winner' in c and 'Tie' in c), None)
-        if original_winner_col: column_map[original_winner_col] = 'Winner'
-
-        original_loser_col = next((c for c in df.columns if 'Loser' in c and 'Tie' in c), None)
-        if original_loser_col: column_map[original_loser_col] = 'Loser'
-        
-        # Pontuações
-        original_pts_w_col = next((c for c in df.columns if 'PtsW' in c), None)
-        if original_pts_w_col: column_map[original_pts_w_col] = 'PtsW'
-        
-        original_pts_l_col = next((c for c in df.columns if 'PtsL' in c), None)
-        if original_pts_l_col: column_map[original_pts_l_col] = 'PtsL'
-        
-        # Renomeia o DataFrame
-        df = df.rename(columns=column_map)
-
-        # Verificação final da Week (deve existir após o mapeamento)
-        if 'Week' not in df.columns:
-            st.error("Falha ao renomear a coluna da semana. O formato do PFR pode ter mudado.")
-            return []
-            
-        # Limpeza e filtragem
-        df = df.dropna(subset=['Week']).copy()
-        
-        # Converte a coluna 'Week' para string para poder filtrar o cabeçalho 'Week' e linhas vazias
-        df['Week_str'] = df['Week'].astype(str).str.strip()
-        df = df[df['Week_str'] != 'Week'].copy()
-        df = df.drop(columns=['Week_str'])
-        
-        # Conversão para lista de eventos (estrutura parecida com a da ESPN)
-        games_list = []
-        for index, row in df.iterrows():
-            
-            # --- Lógica de Correção de Status e N/A ---
-            winner_raw = str(row.get('Winner', '')).strip()
-            loser_raw = str(row.get('Loser', '')).strip()
-            
-            # Limpa o campo de vencedor/perdedor para identificação
-            winner_name = winner_raw.replace('@', '').strip()
-            loser_name = loser_raw.replace('@', '').strip()
-            
-            # Verifica se o jogo realmente tem pontuações (indicando que foi finalizado)
-            is_finalized = not pd.isna(row.get('PtsW')) and not pd.isna(row.get('PtsL'))
-            
-            try:
-                week_num = int(row['Week'])
-            except ValueError:
-                continue # Pula se a semana não for um número válido
-            
-            # 1. TRATAMENTO DE JOGOS FUTUROS (Ajuste Principal)
-            if not is_finalized:
-                # Se não tem pontuação, é um jogo futuro/agendado, independentemente do que PFR colocou em Winner/Loser.
-                status_pt = "Agendado"
-                home_score = 0
-                away_score = 0
-                winner = "N/A"
-
-                # Define quem é Home/Away: se Winner_raw tem '@', o perdedor é o time da casa.
-                if '@' in winner_raw:
-                    away_abbr = normalize_team_name(winner_name)
-                    home_abbr = normalize_team_name(loser_name)
-                elif '@' in loser_raw:
-                    home_abbr = normalize_team_name(winner_name)
-                    away_abbr = normalize_team_name(loser_name)
-                else:
-                    # Se não tem '@' em nenhum, PFR geralmente lista o Home (Vencedor) primeiro
-                    home_abbr = normalize_team_name(winner_name)
-                    away_abbr = normalize_team_name(loser_name)
-                    
-            # 2. TRATAMENTO DE JOGOS FINALIZADOS (Passado)
-            else:
-                status_pt = "Finalizado"
-                is_winner_away = winner_raw.endswith('@')
-
-                # O PFR usa a coluna 'Loser' para quem perdeu e 'Winner' para quem ganhou.
-                if is_winner_away:
-                    away_abbr = normalize_team_name(winner_name)
-                    home_abbr = normalize_team_name(loser_name)
-                    away_score = int(row['PtsW'])
-                    home_score = int(row['PtsL'])
-                else:
-                    home_abbr = normalize_team_name(winner_name)
-                    away_abbr = normalize_team_name(loser_name)
-                    home_score = int(row['PtsW'])
-                    away_score = int(row['PtsL'])
-                    
-                winner = home_abbr if home_score > away_score else away_abbr
-                
-            # Formato de data e timestamp
-            try:
-                date_str = f"{row['Date']} {year}"
-                date_obj = datetime.strptime(date_str, '%B %d %Y')
-                date_formatada = date_obj.strftime('%d/%m/%Y 00:00') # Placeholder time
-                timestamp_iso = date_obj.isoformat()
-            except:
-                date_formatada = "N/A"
-                timestamp_iso = ""
-
-            # Filtra jogos com N/A (que geralmente são problemas no mapeamento)
-            if home_abbr == 'N/A' or away_abbr == 'N/A' or home_abbr == '' or away_abbr == '':
-                 continue # Pula jogos que não puderam ser identificados corretamente
-
-            games_list.append({
-                'id': f"PFR-{year}-{week_num}-{home_abbr}-{away_abbr}",
-                'name': f"{away_abbr} @ {home_abbr}",
-                'week': week_num,
-                'date': date_formatada,
-                'timestamp': timestamp_iso,
-                'status': status_pt,
-                'home': home_abbr,
-                'away': away_abbr,
-                'home_score': home_score,
-                'away_score': away_score,
-                'winner': winner,
-                # Usa normalize_team_name para garantir que as URLs do logo sejam corretas
-                'home_logo': get_logo_url(home_abbr),
-                'away_logo': get_logo_url(away_abbr)
+            # Renomeia colunas para melhor clareza
+            df = df.rename(columns={
+                'Week': 'Week',
+                'Day': 'Day',
+                'Date': 'Date',
+                'Time': 'Time',
+                'Winner': 'Winner_PFR',
+                'Loser': 'Loser_PFR',
+                'Pts.1': 'Winner_Pts',
+                'Pts.2': 'Loser_Pts',
+                'Boxscore': 'Boxscore', # Coluna de link
             })
             
-        return games_list
-    
-    except Exception as e:
-        # Imprime o erro original para debug
-        st.error(f"Erro carregando eventos históricos do PFR: {e}. Verifique o formato da tabela do PFR.")
-        return []
+            # Converte Week para numérico
+            df['Week'] = pd.to_numeric(df['Week'], errors='coerce').astype('Int64')
+            df = df.dropna(subset=['Week']) # Remove linhas sem semana (ex: cabeçalhos)
 
-def parse_event_from_scoreboard(evt):
-    # Sua função original (simplificada para não repetir)
-    try:
-        comp = evt.get('competitions', [])[0]
-        date_iso = comp.get('date')
-        data_obj = isoparse(date_iso) if date_iso else None
-        data_formatada = data_obj.strftime('%d/%m/%Y %H:%M') if data_obj else "N/A"
-        status_obj = comp.get('status', {})
-        stype = status_obj.get('type', {}) or {}
-        stype_state = stype.get('state')
-        status_pt = ""
-        if stype_state == 'in':
-            clock = status_obj.get('displayClock', '')
-            period = status_obj.get('period', 0)
-            status_pt = f"Em Andamento – {clock} no {get_period_name(period)}"
-        elif stype_state == 'post':
-            status_pt = "Finalizado"
+            # Normaliza nomes de times para abreviações da ESPN
+            df['Winner_Abbr'] = df['Winner_PFR'].apply(normalize_team_name)
+            df['Loser_Abbr'] = df['Loser_PFR'].apply(normalize_team_name)
+
+            # Cria coluna de Data/Hora completa
+            df['Date_Full'] = df['Date'] + ' ' + str(year)
+
+            # Limpa colunas desnecessárias e define a ordem
+            df = df[['Week', 'Date_Full', 'Winner_PFR', 'Winner_Abbr', 'Winner_Pts', 'Loser_PFR', 'Loser_Abbr', 'Loser_Pts', 'Boxscore']]
+            
+            st.success(f"Dados históricos da Semana {df['Week'].max()} carregados com sucesso do PFR para {year}.")
+            return df
         else:
-            status_pt = "Agendado"
+            st.error("Erro: pd.read_html não encontrou tabelas após o parsing do PFR.")
+            return pd.DataFrame()
 
-        competitors = comp.get('competitors', [])
-        home = next((c for c in competitors if c.get('homeAway') == 'home'), None)
-        away = next((c for c in competitors if c.get('homeAway') == 'away'), None)
+    except requests.exceptions.HTTPError as he:
+        if he.response.status_code == 404:
+            st.error(f"Erro 404: A página do PFR para o ano {year} não foi encontrada. O calendário pode ainda não ter sido publicado.")
+        else:
+            st.error(f"Erro HTTP ao carregar PFR para {year}: {he}")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Erro carregando eventos históricos do PFR: {e}. Verifique o formato da tabela do PFR.")
+        return pd.DataFrame()
 
-        home_abbr = home.get('team', {}).get('abbreviation', 'CASA') if home else "CASA"
-        away_abbr = away.get('team', {}).get('abbreviation', 'FORA') if away else "FORA"
-        home_score = int(home.get('score', 0)) if home and home.get('score') is not None else 0
-        away_score = int(away.get('score', 0)) if away and away.get('score') is not None else 0
-        
-        winner = home_abbr if home_score > away_score else (away_abbr if away_score > home_score else "Empate")
+# --- CARREGAMENTO DE DADOS (PFR) ---
+historical_data = load_historical_events_from_pfr(CURRENT_PFR_YEAR)
 
-        return {
-            'id': evt.get('id'),
-            'date': data_formatada,
-            'status': status_pt,
-            'home': home_abbr,
-            'away': away_abbr,
-            'home_score': home_score,
-            'away_score': away_score,
-            'winner': winner,
-            'timestamp': data_obj.isoformat() if data_obj else "",
-        }
-    except Exception:
-        return None
 
-# Função auxiliar para carregar dados atuais (não foi alterada, mantida por completude)
-def load_current_events_from_espn():
-    """Carrega dados em tempo real da ESPN e retorna um dicionário mapeado pela chave Away@Home."""
+# --- CARREGAMENTO DE DADOS (ESPN) ---
+@st.cache_data(ttl=600)
+def load_live_events_from_espn():
+    """Carrega o scoreboard atual da ESPN para verificar a semana ativa."""
     try:
-        response = requests.get(API_URL_SCOREBOARD, timeout=10)
+        response = requests.get(API_URL_SCOREBOARD)
         response.raise_for_status()
         data = response.json()
         
-        # Mapeia eventos para a chave "Away@Home"
-        events_map = {}
-        for event in data.get('events', []):
-            parsed_event = parse_event_from_scoreboard(event)
-            if parsed_event:
-                key = f"{parsed_event['away']}@{parsed_event['home']}"
-                events_map[key] = parsed_event
-        return events_map
+        # Extrai o nome da semana ativa (ex: 'Week 17')
+        week_name = data.get('week', {}).get('text', 'Semana Atual Não Definida')
+        current_week = int(re.search(r'\d+', week_name).group()) if re.search(r'\d+', week_name) else None
+        
+        return current_week, data.get('events', [])
     except Exception as e:
-        st.error(f"Erro ao carregar dados em tempo real da ESPN: {e}")
-        return {}
+        st.error(f"Erro carregando dados em tempo real da ESPN: {e}")
+        return None, []
 
+# --- FUNÇÃO DE BUSCA E VISUALIZAÇÃO ---
 
-# --- LÓGICA DE COMBINAÇÃO E EXIBIÇÃO ---
-st.markdown(f"<h1>🏈 NFL Dashboard ({CURRENT_PFR_YEAR})</h1>", unsafe_allow_html=True)
-st.caption(f"Dados históricos/cronograma de **Pro-Football-Reference ({CURRENT_PFR_YEAR})** combinados com dados em tempo real da **ESPN Scoreboard**.")
+def display_scoreboard(df_pfr, current_week_espn=None):
+    """Exibe o placar formatado com base nos dados históricos do PFR."""
 
-if st.button("🔄 Atualizar"):
-    st.cache_data.clear()
-    st.rerun()
+    if df_pfr.empty:
+        st.warning("Não há dados históricos disponíveis para exibição.")
+        return
 
-# 1. Carrega dados históricos (full season)
-pfr_events = load_historical_events_from_pfr(CURRENT_PFR_YEAR)
-if not pfr_events:
-    st.stop()
-
-# 2. Carrega dados em tempo real da ESPN (para jogos em andamento/recentes)
-espn_updates = load_current_events_from_espn()
-
-# 3. Combina/Sobrepõe dados
-final_events = []
-for pfr_game in pfr_events:
-    # Cria uma chave de busca simples para mapeamento
-    match_key = f"{pfr_game['away']}@{pfr_game['home']}"
+    # Usar a semana mais alta disponível nos dados PFR se o ESPN não retornar
+    if current_week_espn:
+        st.subheader(f"🏈 Calendário da Temporada {CURRENT_PFR_YEAR} (Semana {current_week_espn} - ESPN)")
+        df_display = df_pfr[df_pfr['Week'] == current_week_espn].copy()
+    else:
+        max_week = df_pfr['Week'].max()
+        st.subheader(f"🏈 Calendário da Temporada {CURRENT_PFR_YEAR} (Semana {max_week} - PFR)")
+        df_display = df_pfr[df_pfr['Week'] == max_week].copy()
     
-    if match_key in espn_updates:
-        # Se o jogo estiver na ESPN, pega o status e o placar atualizado
-        espn_game = espn_updates[match_key]
-        
-        # Só atualiza o placar/status se o jogo da ESPN estiver 'in' ou 'post'
-        if espn_game['status'] != 'Agendado':
-            pfr_game['status'] = espn_game['status']
-            pfr_game['home_score'] = espn_game['home_score']
-            pfr_game['away_score'] = espn_game['away_score']
-            pfr_game['winner'] = espn_game['winner']
-            # Mantém a data/hora da ESPN se for mais precisa
-            pfr_game['date'] = espn_game['date']
-            pfr_game['timestamp'] = espn_game['timestamp']
+    # Prepara o DataFrame para exibição
+    df_display['Vencedor'] = df_display.apply(
+        lambda row: f"{row['Winner_PFR']} ({int(row['Winner_Pts'])})", axis=1
+    )
+    df_display['Perdedor'] = df_display.apply(
+        lambda row: f"{row['Loser_PFR']} ({int(row['Loser_Pts'])})", axis=1
+    )
+    df_display['Placar'] = df_display['Vencedor'] + ' vs ' + df_display['Perdedor']
+    
+    # Colunas para visualização simplificada
+    games_list = df_display[['Week', 'Date_Full', 'Placar', 'Winner_Abbr', 'Loser_Abbr']].to_dict('records')
+
+    if not games_list:
+        st.info(f"Nenhum jogo encontrado para esta semana na base de dados histórica.")
+        return
+
+    # Layout de cards para melhor visualização
+    cols = st.columns(min(len(games_list), 3)) 
+    
+    for i, game in enumerate(games_list):
+        with cols[i % 3]:
+            winner_abbr = game['Winner_Abbr']
+            loser_abbr = game['Loser_Abbr']
             
-    final_events.append(pfr_game)
-
-# 4. Processa e exibe as categorias
-in_progress = [e for e in final_events if "Em Andamento" in e['status']]
-scheduled = [e for e in final_events if "Agendado" in e['status']]
-finalized = [e for e in final_events if e not in in_progress and e not in scheduled]
-
-# Agrupa por semana (agora usa o campo 'week' do PFR)
-weeks = {}
-for e in final_events:
-    wk = e.get('week', 0)
-    if wk >= 1:
-        weeks.setdefault(wk, []).append(e)
-
-# Geração de estatísticas (usa a mesma lógica de antes)
-def compute_standings(finalized_games):
-    stats = {}
-    for g in finalized_games:
-        h = g['home']; a = g['away']
-        hs = g['home_score']; as_ = g['away_score']
-        for t in (h,a):
-            stats.setdefault(t, {'team':t, 'W':0, 'L':0, 'T':0, 'PF':0, 'PA':0, 'games':[]})
-        
-        # Ignora times que não foram mapeados corretamente (fallback)
-        if h in stats and a in stats and h != 'N/A' and a != 'N/A':
-            stats[h]['PF'] += hs
-            stats[h]['PA'] += as_
-            stats[a]['PF'] += as_
-            stats[a]['PA'] += hs
-            if hs > as_:
-                stats[h]['W'] += 1
-                stats[a]['L'] += 1
-                stats[h]['games'].append('W')
-                stats[a]['games'].append('L')
-            elif as_ > hs:
-                stats[a]['W'] += 1
-                stats[h]['L'] += 1
-                stats[a]['games'].append('W')
-                stats[h]['games'].append('L')
-            else:
-                stats[h]['T'] += 1
-                stats[a]['T'] += 1
-                stats[h]['games'].append('T')
-                stats[a]['games'].append('T')
-                
-    rows = []
-    for t, s in stats.items():
-        gp = s['W'] + s['L'] + s['T']
-        wpct = (s['W'] + 0.5*s['T']) / gp if gp > 0 else 0
-        
-        streak = ""
-        if s['games']:
-            rev = s['games'][::-1]
-            cur = rev[0]
-            cnt = 1
-            for x in rev[1:]:
-                if x == cur:
-                    cnt += 1
-                else:
-                    break
-            streak = f"{cur}{cnt}"
-            
-        rows.append({
-            'Team': t, 'W': s['W'], 'L': s['L'], 'T': s['T'],
-            'PF': s['PF'], 'PA': s['PA'], 'Win%': round(wpct,3), 'Streak': streak
-        })
-    rows.sort(key=lambda x: (x['Win%'], x['PF'] - x['PA']), reverse=True)
-    return rows
-
-standings = compute_standings(finalized)
-
-# blowouts (maiores margens)
-def biggest_blowouts(finalized_games, top_n=5):
-    arr = []
-    for g in finalized_games:
-        diff = abs(g['home_score'] - g['away_score'])
-        arr.append((diff, g))
-    arr.sort(reverse=True, key=lambda x: x[0])
-    return [x[1] for x in arr[:top_n]]
-
-blowouts = biggest_blowouts(finalized, top_n=5)
-
-# preparar payload
-payload = {
-    "sections": [
-        {"title": "🔴 Jogos Ao Vivo", "games": in_progress},
-        {"title": "⏳ Próximos Jogos", "games": scheduled},
-        {"title": "✅ Resultados Históricos", "games": finalized}
-    ],
-    "weeks": weeks,
-    "standings": standings,
-    "blowouts": blowouts
-}
-
-payload_json = json.dumps(payload)
-
-# HTML frontend embutido
-html_template = """
-<!doctype html>
-<html>
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
-<style>
-:root{
-    --bg:#0e1117; --card:#1a1f25; --muted:#8f99a6; --accent:#4CAF50; --danger:#FF4B4B;
-}
-body { background:var(--bg); color:#fff; font-family:Inter, sans-serif; margin:0; padding:0; overflow-x:hidden; }
-.wrap { max-width:1200px; margin:auto; padding:16px; }
-.section { margin-bottom:40px; }
-.section h2 { font-size:1.25rem; color:#e6eef8; border-left:4px solid var(--accent); padding-left:8px; margin-bottom:16px; }
-.grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px,1fr)); gap:20px; }
-.card { background:var(--card); border-radius:12px; padding:16px; display:flex; flex-direction:column; align-items:center; transition: transform 0.2s ease; }
-.card:hover { transform: translateY(-3px); }
-.meta { font-size:0.85rem; color:var(--muted); margin-bottom:8px; }
-.teams { display:flex; align-items:center; justify-content:center; gap:12px; width:100%; }
-.team { display:flex; flex-direction:column; align-items:center; }
-.logo { width:56px; height:56px; border-radius:10px; background:#fff; overflow:hidden; display:flex; align-items:center; justify-content:center; }
-.logo img { width:100%; height:100%; object-fit:contain; padding: 4px; box-sizing: border-box;} 
-.score { font-size:2.4rem; font-weight:800; white-space:nowrap; margin:0 8px; }
-.team-name { font-weight:600; max-width: 65px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
-.status { font-size:0.9rem; color:var(--muted); margin-top:8px; text-align:center; }
-.details { background:var(--card); border-radius:10px; padding:12px; }
-.week-block { margin-bottom:12px; }
-.small { font-size:0.85rem; color:var(--muted); }
-.table { width:100%; border-collapse:collapse; margin-top:12px; }
-.table th, .table td { border-bottom:1px solid rgba(255,255,255,0.08); padding:8px 6px; text-align:center; }
-.table th { color:var(--muted); font-weight:700; }
-.winner-text { color:var(--accent); font-weight:800; }
-.loser-text { color:var(--danger); font-weight:700; }
-.winner-score { color: var(--accent); }
-.loser-score { color: #e6eef8; }
-@media(max-width:600px){ 
-    .score { font-size:1.8rem; } 
-    .logo { width:48px; height:48px; } 
-    .team-name { max-width: 50px; }
-}
-</style>
-</head>
-<body>
-<div class="wrap" id="root"></div>
-<script>
-const payload = PAYLOAD_JSON;
-const root = document.getElementById('root');
-
-// render sections
-payload.sections.forEach(sec=>{
-    if(!sec.games || sec.games.length===0) return;
-    const secDiv = document.createElement('div');
-    secDiv.className = 'section';
-    const h2 = document.createElement('h2');
-    h2.textContent = sec.title;
-    secDiv.appendChild(h2);
-    const grid = document.createElement('div');
-    grid.className = 'grid';
-    sec.games.forEach(g=>{
-        const card = document.createElement('div');
-        card.className = 'card';
-        const homeClass = (g.winner === g.home && g.status === 'Finalizado') ? 'winner-text' : '';
-        const awayClass = (g.winner === g.away && g.status === 'Finalizado') ? 'winner-text' : '';
-        
-        let homeScoreClass = '';
-        let awayScoreClass = '';
-
-        if (g.status === 'Finalizado' && g.winner !== 'Empate') {
-            homeScoreClass = g.winner === g.home ? 'winner-score' : 'loser-score';
-            awayScoreClass = g.winner === g.away ? 'winner-score' : 'loser-score';
-        }
-
-        // Se o jogo está agendado, a pontuação é 0, removemos as classes de score
-        if (g.status === 'Agendado' || g.status === 'Em Andamento') {
-             homeScoreClass = '';
-             awayScoreClass = '';
-        }
-
-        card.innerHTML = `
-            <div class="meta">Semana ${g.week} | ${g.date}</div>
-            <div class="teams">
-                <div class="team"><div class="logo"><img src="${g.home_logo}"></div><div class="team-name ${homeClass}">${g.home}</div></div>
-                <div class="score">
-                    <span class="${homeScoreClass}">${g.home_score}</span> - <span class="${awayScoreClass}">${g.away_score}</span>
+            # Card com estilização básica
+            st.markdown(
+                f"""
+                <div style="
+                    border: 2px solid #ccc; 
+                    border-radius: 12px; 
+                    padding: 15px; 
+                    margin-bottom: 15px;
+                    background-color: #f8f8f8;
+                    box-shadow: 4px 4px 8px rgba(0,0,0,0.1);
+                ">
+                    <p style="font-size: 1.1em; font-weight: bold; margin-bottom: 5px;">
+                        Semana {game['Week']}
+                    </p>
+                    <p style="font-size: 0.9em; color: #555; margin-bottom: 10px;">
+                        {game['Date_Full']}
+                    </p>
+                    <div style="display: flex; justify-content: space-around; align-items: center;">
+                        <div style="text-align: center;">
+                            <img src="{get_logo_url(winner_abbr)}" width="50">
+                            <p style="font-weight: bold; margin-top: 5px; color: green;">{winner_abbr}</p>
+                        </div>
+                        <span style="font-weight: bold; font-size: 1.2em;">VENCEU</span>
+                        <div style="text-align: center;">
+                            <img src="{get_logo_url(loser_abbr)}" width="50">
+                            <p style="font-weight: bold; margin-top: 5px; color: red;">{loser_abbr}</p>
+                        </div>
+                    </div>
                 </div>
-                <div class="team"><div class="logo"><img src="${g.away_logo}"></div><div class="team-name ${awayClass}">${g.away}</div></div>
-            </div>
-            <div class="status">${g.status}</div>`;
-        grid.appendChild(card);
-    });
-    secDiv.appendChild(grid);
-    root.appendChild(secDiv);
-});
+                """,
+                unsafe_allow_html=True
+            )
 
-// weekly history collapsible
-const weeksRoot = document.createElement('div');
-const wSec = document.createElement('div');
-wSec.className = 'section';
-const wh = document.createElement('h2');
-wh.textContent = '📜 Histórico por Semana';
-wSec.appendChild(wh);
+# --- APLICAÇÃO PRINCIPAL ---
 
-Object.keys(payload.weeks).map(Number).sort((a,b)=>a-b).forEach(k=>{
-    const arr = payload.weeks[k];
-    if(!arr || arr.length===0) return;
+st.title(f"🏈 Dashboard Histórico NFL {CURRENT_PFR_YEAR}")
+st.markdown(f"**Fonte de dados:** ESPN (Semana Atual) e Pro-Football-Reference (Resultados Históricos para {CURRENT_PFR_YEAR})")
+
+# 1. Carrega dados da ESPN para saber a semana atual
+current_week_espn, live_events = load_live_events_from_espn()
+
+if historical_data.empty:
+    st.error("Não foi possível carregar o calendário histórico do PFR. O ano pode estar incorreto, ou a estrutura da página mudou.")
+else:
+    # 2. Exibe o placar
+    display_scoreboard(historical_data, current_week_espn)
+
+# 3. Adiciona um filtro de semana caso o usuário queira ver outras semanas
+if not historical_data.empty:
+    all_weeks = sorted(historical_data['Week'].unique())
     
-    // Filtra jogos agendados para a semana para focar no histórico/resultados
-    const finalizedGames = arr.filter(g => g.status === 'Finalizado');
-    if (finalizedGames.length === 0 && k < payload.weeks[Object.keys(payload.weeks).length].week) return; // Oculta semanas vazias no passado
+    st.markdown("---")
+    st.header("Explorar Outras Semanas")
 
-    const block = document.createElement('div');
-    block.className = 'week-block';
-    const details = document.createElement('details');
-    const summary = document.createElement('summary');
-    summary.innerHTML = `Semana ${k} <span class="small">(${arr.length} jogos, ${finalizedGames.length} finalizados)</span>`;
-    details.appendChild(summary);
-    const inner = document.createElement('div');
-    inner.className = 'details small';
-    
-    // Ordena os jogos por status (Finalizado > Em Andamento > Agendado)
-    arr.sort((a, b) => {
-        const statusOrder = { 'Em Andamento': 3, 'Finalizado': 2, 'Agendado': 1 };
-        return statusOrder[b.status] - statusOrder[a.status];
-    });
+    selected_week = st.selectbox(
+        'Selecione a Semana para Visualizar:',
+        options=all_weeks,
+        index=all_weeks.index(current_week_espn) if current_week_espn in all_weeks else (len(all_weeks) -1 if all_weeks else 0)
+    )
 
-    arr.forEach(g=>{
-        const homeClass = (g.winner === g.home && g.status === 'Finalizado') ? 'winner-text' : '';
-        const awayClass = (g.winner === g.away && g.status === 'Finalizado') ? 'winner-text' : '';
-        const line = document.createElement('p');
+    if selected_week is not None:
+        df_selected_week = historical_data[historical_data['Week'] == selected_week].copy()
         
-        let scoreDisplay = `${g.home_score} - ${g.away_score}`;
-        if (g.status === 'Agendado') {
-             scoreDisplay = '-';
-        }
-        
-        line.innerHTML = `<span>${g.date}</span> — <span class="${homeClass}">${g.home}</span> ${scoreDisplay} <span class="${awayClass}">${g.away}</span> <span class="small">· ${g.status}</span>`;
-        inner.appendChild(line);
-    });
-    details.appendChild(inner);
-    block.appendChild(details);
-    wSec.appendChild(block);
-});
-root.appendChild(wSec);
-
-// standings
-const stSec = document.createElement('div');
-stSec.className = 'section';
-const sth2 = document.createElement('h2');
-sth2.textContent = '🏆 Classificação (Geral)';
-stSec.appendChild(sth2);
-const stDiv = document.createElement('div');
-stDiv.className = 'details';
-if(payload.standings.length > 0){
-    const t = document.createElement('table');
-    t.className = 'table';
-    t.innerHTML = `<thead><tr><th>Pos</th><th>Time</th><th>W</th><th>L</th><th>T</th><th>PF</th><th>PA</th><th>Win%</th><th>Streak</th></tr></thead>`;
-    const tb = document.createElement('tbody');
-    payload.standings.forEach((r,i)=>{
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${i+1}</td><td>${r.Team}</td><td>${r.W}</td><td>${r.L}</td><td>${r.T}</td><td>${r.PF}</td><td>${r.PA}</td><td>${r['Win%'].toFixed(3)}</td><td>${r.Streak}</td>`;
-        tb.appendChild(tr);
-    });
-    t.appendChild(tb);
-    stDiv.appendChild(t);
-} else {
-    stDiv.innerHTML = "<div class='small'>Sem dados de jogos finalizados.</div>";
-}
-stSec.appendChild(stDiv);
-root.appendChild(stSec);
-
-// blowouts
-const boSec = document.createElement('div');
-boSec.className = 'section';
-const boh = document.createElement('h2');
-boh.textContent = '💥 Maiores Vitórias';
-boSec.appendChild(boh);
-const boDiv = document.createElement('div');
-boDiv.className = 'details';
-if(payload.blowouts.length > 0){
-    payload.blowouts.forEach(g=>{
-        const diff = Math.abs(g.home_score - g.away_score);
-        const winner = g.home_score > g.away_score ? g.home : (g.away_score > g.home_score ? g.away : '');
-        const winnerHomeScoreClass = (g.home_score > g.away_score) ? 'winner-text' : '';
-        const winnerAwayScoreClass = (g.away_score > g.home_score) ? 'winner-text' : '';
-    
-        const p = document.createElement('p');
-        p.innerHTML = `<span>Semana ${g.week} | ${g.date}</span> — <span class="${winner===g.home?'winner-text':''}">${g.home}</span> <span class="${winnerHomeScoreClass}">${g.home_score}</span> - <span class="${winnerAwayScoreClass}">${g.away_score}</span> <span class="${winner===g.away?'winner-text':''}">${g.away}</span> <span class="small">· dif ${diff}</span>`;
-        boDiv.appendChild(p);
-    });
-} else {
-    boDiv.innerHTML = "<div class='small'>Sem jogos finalizados.</div>";
-}
-boSec.appendChild(boDiv);
-root.appendChild(boSec);
-
-</script>
-</body>
-</html>
-"""
-
-html_code = html_template.replace("PAYLOAD_JSON", json.dumps(payload))
-
-# cálculo de altura para evitar corte
-num = len(final_events)
-rows = math.ceil(num / 3)
-height = min(800 + rows * 120, 15000)
-
-st.download_button("📥 Baixar histórico CSV", data=pd.DataFrame(final_events).to_csv(index=False).encode('utf-8'),
-                   file_name="nfl_full_season_history.csv", mime="text/csv")
-
-st.components.v1.html(html_code, height=height, scrolling=True)
+        if not df_selected_week.empty:
+            st.subheader(f"Resultados da Semana {selected_week} ({CURRENT_PFR_YEAR})")
+            
+            # Prepara a tabela de visualização
+            df_selected_week['Placar Final'] = df_selected_week.apply(
+                lambda row: f"{row['Winner_PFR']} {int(row['Winner_Pts'])} - {int(row['Loser_Pts'])} {row['Loser_PFR']}", 
+                axis=1
+            )
+            
+            df_final_view = df_selected_week[[
+                'Date_Full', 
+                'Placar Final',
+            ]].rename(columns={'Date_Full': 'Data'})
+            
+            st.dataframe(
+                df_final_view, 
+                hide_index=True, 
+                use_container_width=True
+            )
+        else:
+            st.info(f"Nenhum jogo encontrado na base de dados histórica para a Semana {selected_week} de {CURRENT_PFR_YEAR}.")
