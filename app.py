@@ -11,9 +11,9 @@ import time
 
 # --- CONFIGURAÇÃO ---
 
-# CORRIGIDO: Voltando para 2024. O ano 2025 frequentemente causa 403 Forbidden 
-# ou 'list index out of range' no PFR por ainda não estar completo ou publicado.
-CURRENT_PFR_YEAR = 2024 
+# CORRIGIDO: Voltando para 2023. Os anos mais recentes (2024/2025) estão sendo
+# bloqueados de forma agressiva pelo PFR com o erro 403 (Forbidden).
+CURRENT_PFR_YEAR = 2023 
 
 st.set_page_config(page_title=f"🏈 NFL Dashboard Histórico {CURRENT_PFR_YEAR}", layout="wide", page_icon="🏈")
 
@@ -71,8 +71,8 @@ def load_historical_events_from_pfr(year):
     st.info(f"Tentando carregar dados históricos do PFR para o ano: **{year}** a partir de `{pfr_url}`. Aguarde...")
 
     try:
-        # 1. Adiciona um pequeno delay para evitar o bloqueio 403
-        time.sleep(1) 
+        # 1. Adiciona um delay MAIOR (2 segundos) para evitar o bloqueio 403
+        time.sleep(2) 
 
         # 2. Busca o HTML
         headers = {
@@ -148,7 +148,7 @@ def load_historical_events_from_pfr(year):
         if he.response.status_code == 404:
             st.error(f"Erro 404: A página do PFR para o ano {year} não foi encontrada. O calendário pode ainda não ter sido publicado.")
         elif he.response.status_code == 403:
-             st.error(f"Erro 403: Acesso Proibido. O servidor do PFR está bloqueando o scraping automático. Tente novamente mais tarde ou mude para um ano mais antigo.")
+             st.error(f"Erro 403: Acesso Proibido. O servidor do PFR está bloqueando o scraping automático. O ano **{year}** pode ser muito recente para raspagem. Tente um ano mais antigo.")
         else:
             st.error(f"Erro HTTP ao carregar PFR para {year}: {he}")
         return pd.DataFrame()
