@@ -49,6 +49,131 @@ TEAM_CONFERENCE_DIVISION_MAP = {
     'ARI': {'conf': 'NFC', 'div': 'West'}, 'LAR': {'conf': 'NFC', 'div': 'West'}, 'SF': {'conf': 'NFC', 'div': 'West'}, 'SEA': {'conf': 'NFC', 'div': 'West'}
 }
 
+# --- FUNÇÕES DE INJEÇÃO DE CSS ---
+
+def inject_custom_css():
+    """
+    Injeta o CSS customizado UMA VEZ no topo da aplicação Streamlit.
+    Isso evita que o bloco <style> seja re-renderizado a cada chamada de placar,
+    resolvendo o problema de 'vazamento' e duplicação de estilos.
+    """
+    SCOREBOARD_CSS = """
+    <style>
+    /* Estilo do container do placar */
+    .scoreboard-card {
+        border-radius: 12px;
+        padding: 15px;
+        margin-bottom: 20px;
+        /* Sombra mais suave */
+        box-shadow: 0 6px 15px rgba(0, 0, 0, 0.08); 
+        transition: transform 0.2s, box-shadow 0.2s;
+        background: #ffffff; /* Fundo branco puro para modernidade */
+        border: 1px solid #e9ecef; /* Borda sutil */
+    }
+    .scoreboard-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15); /* Sombra mais evidente no hover */
+    }
+    /* Layout principal com Flexbox para centralização horizontal e vertical */
+    .game-layout {
+        display: flex;
+        align-items: center; /* Centraliza verticalmente todos os itens */
+        justify-content: space-between; /* Distribui o espaço entre os times e o placar */
+    }
+    /* Estilo do Score do time vencedor */
+    .score-winner {
+        font-family: 'Inter', sans-serif; /* Fonte moderna */
+        font-size: 2.5em; /* Score grande e impactante */
+        font-weight: 900;
+        color: #007bff; /* Azul primário forte (moderno) */
+        margin: 0;
+        padding: 0 15px;
+        line-height: 1; 
+    }
+    /* Estilo do Score do time perdedor */
+    .score-loser {
+        font-family: 'Inter', sans-serif;
+        font-size: 2.0em;
+        font-weight: 500;
+        color: #adb5bd; /* Cinza claro para o perdedor */
+        margin: 0;
+        padding: 0 15px;
+        line-height: 1;
+    }
+    /* Container central (Scores + VS) - CHAVE PARA A CENTRALIZAÇÃO */
+    .score-container {
+        display: flex;
+        align-items: center;
+        justify-content: center; /* CENTRALIZAÇÃO PERFEITA */
+        flex-grow: 1; /* Ocupa o espaço central disponível */
+        min-width: 120px; /* Garante que tenha espaço para centralizar */
+    }
+    .vs-text {
+        font-size: 1.2em;
+        font-weight: 700;
+        color: #6c757d; /* Cinza escuro para o VS */
+        margin: 0 5px;
+    }
+    /* Info do time (logo + sigla) */
+    .team-info {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        width: 30%; /* Controla a largura das colunas laterais */
+        min-width: 80px; /* Mínimo para visualização em mobile */
+    }
+    .team-info img {
+        width: 50px; /* Logo maior */
+        height: 50px;
+        border-radius: 50%;
+        margin-bottom: 5px;
+        background: #f8f9fa; 
+        padding: 2px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+    }
+    .team-info strong {
+        font-size: 1.0em;
+        line-height: 1.2;
+        color: #343a40;
+    }
+    /* Status (Finalizado) */
+    .status-final {
+        text-align: center; /* Centraliza a info de status */
+        font-size: 0.85em;
+        color: #198754;
+        font-weight: bold;
+        margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px solid #f8f9fa;
+    }
+    .game-date {
+        text-align: center;
+        font-size: 0.8em;
+        color: #6c757d;
+        margin-bottom: 10px;
+        border-bottom: 1px dashed #e9ecef;
+        padding-bottom: 5px;
+    }
+    /* Ajuste para telas menores */
+    @media (max-width: 600px) {
+        .score-winner, .score-loser {
+            font-size: 1.8em; 
+            padding: 0 8px;
+        }
+        .vs-text {
+            font-size: 1.0em;
+        }
+        .team-info img {
+            width: 40px;
+            height: 40px;
+        }
+    }
+    </style>
+    """
+    st.markdown(SCOREBOARD_CSS, unsafe_allow_html=True)
+
+
 # --- FUNÇÕES AUXILIARES ---
 
 def get_logo_url(abbreviation):
@@ -251,8 +376,8 @@ def display_standings(df_standings, conference_name):
 
 def display_scoreboard(df_pfr, current_week_espn=None):
     """
-    Exibe o placar formatado com HTML/CSS customizado para centralização
-    perfeita dos scores e um design moderno (usando Flexbox).
+    Exibe o placar formatado com HTML customizado, que utiliza o CSS injetado
+    globalmente pela função inject_custom_css().
     """
 
     if df_pfr.empty:
@@ -277,123 +402,6 @@ def display_scoreboard(df_pfr, current_week_espn=None):
     if not games_list:
         st.info(f"Nenhum jogo encontrado para exibição nesta semana.")
         return
-
-    # Estilo CSS para o cartão de placar (usando Flexbox para centralização)
-    SCOREBOARD_CSS = """
-    <style>
-    /* Estilo do container do placar */
-    .scoreboard-card {
-        border-radius: 12px;
-        padding: 15px;
-        margin-bottom: 20px;
-        /* Sombra mais suave */
-        box-shadow: 0 6px 15px rgba(0, 0, 0, 0.08); 
-        transition: transform 0.2s, box-shadow 0.2s;
-        background: #ffffff; /* Fundo branco puro para modernidade */
-        border: 1px solid #e9ecef; /* Borda sutil */
-    }
-    .scoreboard-card:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15); /* Sombra mais evidente no hover */
-    }
-    /* Layout principal com Flexbox para centralização horizontal e vertical */
-    .game-layout {
-        display: flex;
-        align-items: center; /* Centraliza verticalmente todos os itens */
-        justify-content: space-between; /* Distribui o espaço entre os times e o placar */
-    }
-    /* Estilo do Score do time vencedor */
-    .score-winner {
-        font-family: 'Inter', sans-serif; /* Fonte moderna */
-        font-size: 2.5em; /* Score grande e impactante */
-        font-weight: 900;
-        color: #007bff; /* Azul primário forte (moderno) */
-        margin: 0;
-        padding: 0 15px;
-        line-height: 1; 
-    }
-    /* Estilo do Score do time perdedor */
-    .score-loser {
-        font-family: 'Inter', sans-serif;
-        font-size: 2.0em;
-        font-weight: 500;
-        color: #adb5bd; /* Cinza claro para o perdedor */
-        margin: 0;
-        padding: 0 15px;
-        line-height: 1;
-    }
-    /* Container central (Scores + VS) - CHAVE PARA A CENTRALIZAÇÃO */
-    .score-container {
-        display: flex;
-        align-items: center;
-        justify-content: center; /* CENTRALIZAÇÃO PERFEITA */
-        flex-grow: 1; /* Ocupa o espaço central disponível */
-        min-width: 120px; /* Garante que tenha espaço para centralizar */
-    }
-    .vs-text {
-        font-size: 1.2em;
-        font-weight: 700;
-        color: #6c757d; /* Cinza escuro para o VS */
-        margin: 0 5px;
-    }
-    /* Info do time (logo + sigla) */
-    .team-info {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
-        width: 30%; /* Controla a largura das colunas laterais */
-        min-width: 80px; /* Mínimo para visualização em mobile */
-    }
-    .team-info img {
-        width: 50px; /* Logo maior */
-        height: 50px;
-        border-radius: 50%;
-        margin-bottom: 5px;
-        background: #f8f9fa; 
-        padding: 2px;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
-    }
-    .team-info strong {
-        font-size: 1.0em;
-        line-height: 1.2;
-        color: #343a40;
-    }
-    /* Status (Finalizado) */
-    .status-final {
-        text-align: center; /* Centraliza a info de status */
-        font-size: 0.85em;
-        color: #198754;
-        font-weight: bold;
-        margin-top: 10px;
-        padding-top: 8px;
-        border-top: 1px solid #f8f9fa;
-    }
-    .game-date {
-        text-align: center;
-        font-size: 0.8em;
-        color: #6c757d;
-        margin-bottom: 10px;
-        border-bottom: 1px dashed #e9ecef;
-        padding-bottom: 5px;
-    }
-    /* Ajuste para telas menores */
-    @media (max-width: 600px) {
-        .score-winner, .score-loser {
-            font-size: 1.8em; 
-            padding: 0 8px;
-        }
-        .vs-text {
-            font-size: 1.0em;
-        }
-        .team-info img {
-            width: 40px;
-            height: 40px;
-        }
-    }
-    </style>
-    """
-    st.markdown(SCOREBOARD_CSS, unsafe_allow_html=True)
     
     num_cols = 3 # 3 cards por linha em desktop
     
@@ -449,7 +457,10 @@ def display_scoreboard(df_pfr, current_week_espn=None):
                     st.markdown(game_html, unsafe_allow_html=True)
 
 
-# --- CARREGAMENTO GLOBAL DE DADOS ---
+# --- CARREGAMENTO GLOBAL DE DADOS E INJEÇÃO DE CSS ---
+
+# 0. INJETA O CSS UMA VEZ PARA EVITAR VAZAMENTO!
+inject_custom_css()
 
 # 1. Tenta carregar os dados
 historical_data = load_historical_events_from_nflverse(CURRENT_PFR_YEAR)
@@ -458,7 +469,6 @@ current_week_espn, live_events = load_live_events_from_espn()
 # --- APLICAÇÃO PRINCIPAL (EXECUÇÃO) ---
 
 # Usando colunas para centralizar o conteúdo principal no layout 'wide'
-# As colunas laterais vazias empurram o conteúdo central para o meio da tela.
 col_left, col_center, col_right = st.columns([0.1, 4, 0.1]) 
 
 with col_center:
@@ -540,4 +550,3 @@ with col_center:
                 )
             else:
                 st.info(f"Nenhum jogo finalizado encontrado na base histórica para a Semana {selected_week}.")
- 
