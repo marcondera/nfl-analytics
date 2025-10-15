@@ -12,7 +12,7 @@ import numpy as np
 st.set_page_config(page_title="🏈 NFL Dashboard Histórico", layout="wide", page_icon="🏈")
 
 # Constante: Ano para buscar dados históricos no PFR
-CURRENT_PFR_YEAR = 2025 
+CURRENT_PFR_YEAR = 2024 
 
 # Endpoints
 API_URL_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
@@ -653,9 +653,11 @@ html_code = html_template.replace("PAYLOAD_JSON", json.dumps(payload))
 # cálculo de altura para evitar corte
 num = len(final_events)
 rows = math.ceil(num / 3)
-height = min(800 + rows * 120, 9000)
+# Aumentei o limite máximo de altura para garantir que todo o conteúdo seja exibido.
+# E mudei scrolling para True.
+height = min(800 + rows * 120, 15000)
 
 st.download_button("📥 Baixar histórico CSV", data=pd.DataFrame(final_events).to_csv(index=False).encode('utf-8'),
                    file_name="nfl_full_season_history.csv", mime="text/csv")
 
-st.components.v1.html(html_code, height=height, scrolling=False)
+st.components.v1.html(html_code, height=height, scrolling=True)
