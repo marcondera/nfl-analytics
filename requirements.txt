@@ -1,4 +1,6 @@
-streamlit>=1.38
-pandas>=2.1
-requests>=2.31
-python-dateutil>=2.9
+streamlit
+pandas
+requests
+numpy
+lxml
+python-dateutil
