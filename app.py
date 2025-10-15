@@ -12,7 +12,7 @@ import time
 # --- CONFIGURAÇÃO ---
 
 # CORRIGIDO: Agora usando nflverse como fonte principal para dados históricos.
-CURRENT_PFR_YEAR = 2023 
+CURRENT_PFR_YEAR = 2025 
 
 st.set_page_config(page_title=f"🏈 NFL Dashboard Histórico {CURRENT_PFR_YEAR}", layout="wide", page_icon="🏈")
 
