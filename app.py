@@ -12,6 +12,7 @@ import time
 # --- CONFIGURAÇÃO ---
 
 # CORRIGIDO: Agora usando nflverse como fonte principal para dados históricos.
+# AJUSTADO: Ano definido para 2025 conforme solicitado.
 CURRENT_PFR_YEAR = 2025 
 
 st.set_page_config(page_title=f"🏈 NFL Dashboard Histórico {CURRENT_PFR_YEAR}", layout="wide", page_icon="🏈")
@@ -66,11 +67,15 @@ def load_historical_events_from_nflverse(year):
         # Lê o CSV diretamente da URL
         df = pd.read_csv(NFLVERSE_GAMES_URL)
         
-        # Filtra pelo ano (season) e apenas jogos da temporada regular ('REG') que já terminaram
+        # Filtra pelo ano (season) e apenas jogos da temporada regular ('REG')
         df_year = df[(df['season'] == year) & (df['game_type'] == 'REG')].copy()
         
+        # NOVO FILTRO: Garante que apenas jogos JOGADOS (com scores > 0) sejam considerados.
+        # Isso corrige o problema de visualização de semanas futuras em andamento.
+        df_year = df_year[(df_year['home_score'].fillna(0) > 0) | (df_year['away_score'].fillna(0) > 0)].copy()
+
         if df_year.empty:
-            st.warning(f"Nenhum jogo encontrado no NFLverse para a temporada {year}.")
+            st.warning(f"Nenhum jogo jogado encontrado no NFLverse para a temporada {year}.")
             return pd.DataFrame()
 
         # Cria as colunas de Vencedor/Perdedor e Placar, mantendo a estrutura esperada pelo Dashboard
@@ -83,6 +88,7 @@ def load_historical_events_from_nflverse(year):
             winner_abbr, loser_abbr, winner_pts, loser_pts = None, None, 0, 0
             
             # Garante que scores são inteiros para comparação
+            # Não é necessário checar por NaN pois o filtro acima já removeu jogos 0-0.
             home_score = int(row['home_score']) if pd.notna(row['home_score']) else 0
             away_score = int(row['away_score']) if pd.notna(row['away_score']) else 0
             
@@ -92,9 +98,7 @@ def load_historical_events_from_nflverse(year):
             elif away_score > home_score:
                 winner_abbr, winner_pts = row['away_team'], away_score
                 loser_abbr, loser_pts = row['home_team'], home_score
-            else: # Empate (Tie) ou 0-0
-                # Para simplificar a exibição (o dashboard não lida bem com empates), 
-                # e para jogos não jogados (0-0), tratamos o time da casa como 'vencedor'.
+            else: # Empate (Tie)
                 winner_abbr, winner_pts = row['home_team'], home_score
                 loser_abbr, loser_pts = row['away_team'], away_score
             
@@ -167,10 +171,12 @@ def display_scoreboard(df_pfr, current_week_espn=None):
     # Usar a semana mais alta disponível nos dados PFR se o ESPN não retornar
     if current_week_espn:
         st.subheader(f"🏈 Calendário da Temporada {CURRENT_PFR_YEAR} (Semana {current_week_espn} - ESPN)")
+        # Filtra pela semana atual do ESPN, se disponível
         df_display = df_pfr[df_pfr['Week'] == current_week_espn].copy()
     else:
         max_week = df_pfr['Week'].max()
         st.subheader(f"🏈 Calendário da Temporada {CURRENT_PFR_YEAR} (Semana {max_week} - NFLverse)")
+        # Caso o ESPN não retorne a semana atual, usa a última semana jogada encontrada no NFLverse
         df_display = df_pfr[df_pfr['Week'] == max_week].copy()
     
     # Prepara o DataFrame para exibição
@@ -206,10 +212,11 @@ def display_scoreboard(df_pfr, current_week_espn=None):
             winner_pts = game['Winner_Pts']
             loser_pts = game['Loser_Pts']
 
-            # Define o status do jogo. Para nflverse, jogos com scores > 0 já estão finalizados.
+            # Define o status do jogo. Jogos com scores > 0 já estão finalizados.
             status_text = "FINALIZADO"
             if winner_pts == 0 and loser_pts == 0:
-                status_text = "AGENDADO" # Usado se o nflverse listar jogos futuros
+                # Este caso deve ser raro devido ao novo filtro, mas mantido como fallback
+                status_text = "AGENDADO/0-0" 
 
             # Card com estilização básica
             st.markdown(
