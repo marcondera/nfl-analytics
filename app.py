@@ -11,18 +11,17 @@ import time
 
 # --- CONFIGURAÇÃO ---
 
-# CORRIGIDO: Voltando para 2023. Os anos mais recentes (2024/2025) estão sendo
-# bloqueados de forma agressiva pelo PFR com o erro 403 (Forbidden).
-CURRENT_PFR_YEAR = 2025
+# CORRIGIDO: Agora usando nflverse como fonte principal para dados históricos.
+CURRENT_PFR_YEAR = 2023 
 
 st.set_page_config(page_title=f"🏈 NFL Dashboard Histórico {CURRENT_PFR_YEAR}", layout="wide", page_icon="🏈")
 
 # Endpoints
 API_URL_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
-PFR_URL_TEMPLATE = f"https://www.pro-football-reference.com/years/{CURRENT_PFR_YEAR}/games.htm"
+# Nova URL de dados históricos - fonte mais robusta e estável
+NFLVERSE_GAMES_URL = "https://raw.githubusercontent.com/nflverse/nflverse-data/master/files/games.csv"
 
-# Mapa de Logos e Abbr para PFR (necessário para mapear nomes do PFR para logos da ESPN)
-# ... [O restante do LOGO_MAP e PFR_ABBR_MAP permanece o mesmo]
+# Mapa de Logos (nflverse usa as abreviações padrão que já mapeamos)
 LOGO_MAP = {
     "SF": "sf", "BUF": "buf", "ATL": "atl", "BAL": "bal", "CAR": "car", "CIN": "cin",
     "CHI": "chi", "CLE": "cle", "DAL": "dal", "DEN": "den", "DET": "det", "GB": "gb",
@@ -32,7 +31,7 @@ LOGO_MAP = {
     "ARI": "ari", "WAS": "wsh", "WSH": "wsh"
 }
 
-# Mapeamento de nomes completos/curtos do PFR para abreviações da ESPN (ajuste conforme necessário)
+# Mapeamento de nomes completos/curtos (usado para simular os nomes PFR que o código espera)
 PFR_ABBR_MAP = {
     '49ers': 'SF', 'Bills': 'BUF', 'Falcons': 'ATL', 'Ravens': 'BAL', 'Panthers': 'CAR', 'Bengals': 'CIN',
     'Bears': 'CHI', 'Browns': 'CLE', 'Cowboys': 'DAL', 'Broncos': 'DEN', 'Lions': 'DET', 'Packers': 'GB',
@@ -54,113 +53,88 @@ def get_logo_url(abbreviation):
     abbr = LOGO_MAP.get(str(abbreviation).upper(), str(abbreviation).lower())
     return f"https://a.espncdn.com/i/teamlogos/nfl/500/{abbr}.png"
 
-def normalize_team_name(name):
-    """Converte o nome do time PFR em abreviação ESPN."""
-    name_str = str(name).strip()
-    return PFR_ABBR_MAP.get(name_str, name_str)
 
 @st.cache_data(ttl=3600)
-def load_historical_events_from_pfr(year):
+def load_historical_events_from_nflverse(year):
     """
-    Carrega o histórico de eventos (jogos) do Pro-Football-Reference (PFR).
-    
-    Usa regex para 'descomentar' a tabela HTML e lê com pandas.
+    Carrega o histórico de eventos (jogos) do nflverse (via CSV).
+    Usa uma fonte de dados mais estável para evitar bloqueios de scraping.
     """
-    
-    pfr_url = f"https://www.pro-football-reference.com/years/{year}/games.htm"
-    st.info(f"Tentando carregar dados históricos do PFR para o ano: **{year}** a partir de `{pfr_url}`. Aguarde...")
+    st.info(f"Carregando dados históricos do NFLverse para a temporada: **{year}** a partir de `{NFLVERSE_GAMES_URL}`. Aguarde...")
 
     try:
-        # 1. Adiciona um delay MAIOR (2 segundos) para evitar o bloqueio 403
-        time.sleep(2) 
-
-        # 2. Busca o HTML
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        r = requests.get(pfr_url, headers=headers, timeout=10)
-        r.raise_for_status() # Lança HTTPError para 4xx ou 5xx
-        html_content = r.text
-
-        # 3. Usa Regex para encontrar e 'descomentar' a tabela principal ('games')
-        pattern = re.compile(r'<!--(.*?)-->', re.DOTALL)
+        # Lê o CSV diretamente da URL
+        df = pd.read_csv(NFLVERSE_GAMES_URL)
         
-        tables_html = None
+        # Filtra pelo ano (season) e apenas jogos da temporada regular ('REG') que já terminaram
+        df_year = df[(df['season'] == year) & (df['game_type'] == 'REG')].copy()
         
-        # Itera sobre todos os blocos comentados para encontrar o que contém a tabela 'games'
-        for match in pattern.findall(html_content):
-            if 'id="games"' in match:
-                tables_html = match
-                break
-        
-        if not tables_html:
-            st.warning("Não foi possível encontrar a tabela de jogos ('games') dentro dos comentários do PFR. O calendário pode não ter sido publicado para este ano, ou o formato mudou.")
+        if df_year.empty:
+            st.warning(f"Nenhum jogo encontrado no NFLverse para a temporada {year}.")
             return pd.DataFrame()
 
-        # 4. Lê o HTML descomentado
-        df_list = pd.read_html(StringIO(tables_html))
+        # Cria as colunas de Vencedor/Perdedor e Placar, mantendo a estrutura esperada pelo Dashboard
         
-        if df_list:
-            df = df_list[0]
+        # Cria um mapeamento simples de ABBR para um nome completo simulado para manter a estrutura de exibição
+        # do PFR original (ex: '49ers' em vez de 'SF' para o nome completo)
+        ABBR_TO_NAME = {v: k for k, v in PFR_ABBR_MAP.items() if v == k.split()[-1] or v == k}
             
-            # Limpeza e preparação dos dados
-            # A nova lógica de column_names deve ser mais robusta, mesmo se as colunas forem de múltiplos níveis
-            df.columns = ['_'.join(col).strip() if isinstance(col, tuple) else col for col in df.columns.values]
-            df.columns = [col.replace('Unnamed: 0_level_0_', '').replace('Unnamed: 1_level_0_', '') for col in df.columns]
-
-            # Filtra linhas de cabeçalho repetidas
-            df = df[df['Week'].astype(str) != 'Week'].copy()
+        def calculate_result(row):
+            winner_abbr, loser_abbr, winner_pts, loser_pts = None, None, 0, 0
             
-            # Renomeia colunas para melhor clareza (baseado na estrutura do PFR 2024/2025)
-            df = df.rename(columns={
-                'Week': 'Week',
-                'Day': 'Day',
-                'Date': 'Date',
-                'Time': 'Time',
-                'Winner/tie': 'Winner_PFR', # Coluna alterada em temporadas mais recentes
-                'Loser/tie': 'Loser_PFR',   # Coluna alterada em temporadas mais recentes
-                'PtsW': 'Winner_Pts',
-                'PtsL': 'Loser_Pts',
-                'Boxscore': 'Boxscore', 
-            })
+            # Garante que scores são inteiros para comparação
+            home_score = int(row['home_score']) if pd.notna(row['home_score']) else 0
+            away_score = int(row['away_score']) if pd.notna(row['away_score']) else 0
             
-            # Garante que Week é numérico
-            df['Week'] = pd.to_numeric(df['Week'], errors='coerce').astype('Int64')
-            df = df.dropna(subset=['Week']) 
-
-            # Normaliza nomes de times
-            df['Winner_Abbr'] = df['Winner_PFR'].apply(normalize_team_name)
-            df['Loser_Abbr'] = df['Loser_PFR'].apply(normalize_team_name)
-
-            # Cria coluna de Data/Hora completa
-            df['Date_Full'] = df['Date'] + ' ' + str(year)
-
-            # Limpa colunas desnecessárias e define a ordem
-            df = df[['Week', 'Date_Full', 'Winner_PFR', 'Winner_Abbr', 'Winner_Pts', 'Loser_PFR', 'Loser_Abbr', 'Loser_Pts', 'Boxscore']]
+            if home_score > away_score:
+                winner_abbr, winner_pts = row['home_team'], home_score
+                loser_abbr, loser_pts = row['away_team'], away_score
+            elif away_score > home_score:
+                winner_abbr, winner_pts = row['away_team'], away_score
+                loser_abbr, loser_pts = row['home_team'], home_score
+            else: # Empate (Tie) ou 0-0
+                # Para simplificar a exibição (o dashboard não lida bem com empates), 
+                # e para jogos não jogados (0-0), tratamos o time da casa como 'vencedor'.
+                winner_abbr, winner_pts = row['home_team'], home_score
+                loser_abbr, loser_pts = row['away_team'], away_score
             
-            st.success(f"Dados históricos da Semana {df['Week'].max()} carregados com sucesso do PFR para {year}.")
-            return df
-        else:
-            st.error("Erro: pd.read_html não encontrou tabelas após o parsing do PFR.")
-            return pd.DataFrame()
+            # Simula os nomes completos (PFR_PFR)
+            winner_name = ABBR_TO_NAME.get(winner_abbr, winner_abbr)
+            loser_name = ABBR_TO_NAME.get(loser_abbr, loser_abbr)
 
-    except requests.exceptions.HTTPError as he:
-        if he.response.status_code == 404:
-            st.error(f"Erro 404: A página do PFR para o ano {year} não foi encontrada. O calendário pode ainda não ter sido publicado.")
-        elif he.response.status_code == 403:
-             st.error(f"Erro 403: Acesso Proibido. O servidor do PFR está bloqueando o scraping automático. O ano **{year}** pode ser muito recente para raspagem. Tente um ano mais antigo.")
-        else:
-            st.error(f"Erro HTTP ao carregar PFR para {year}: {he}")
+            return pd.Series([
+                row['week'], 
+                f"{row['gameday']} {row['season']}", # Date_Full
+                winner_name,  # Winner_PFR (Nome completo simulado)
+                winner_abbr,  # Winner_Abbr
+                winner_pts, 
+                loser_name,   # Loser_PFR (Nome completo simulado)
+                loser_abbr,   # Loser_Abbr
+                loser_pts,
+                'N/A' # Boxscore placeholder
+            ])
+
+        # Aplica a função para criar as novas colunas no formato do dashboard
+        df_results = df_year.apply(calculate_result, axis=1)
+        df_results.columns = ['Week', 'Date_Full', 'Winner_PFR', 'Winner_Abbr', 'Winner_Pts', 'Loser_PFR', 'Loser_Abbr', 'Loser_Pts', 'Boxscore']
+        
+        df_results['Week'] = pd.to_numeric(df_results['Week'], errors='coerce').astype('Int64')
+        df_results = df_results.dropna(subset=['Week'])
+        
+        st.success(f"Dados históricos da Semana {df_results['Week'].max()} carregados com sucesso do NFLverse para {year}.")
+        return df_results
+        
+    except requests.exceptions.RequestException as he:
+        st.error(f"Erro de rede ao carregar NFLverse: {he}. Verifique a conectividade ou a URL de dados.")
         return pd.DataFrame()
     except Exception as e:
-        st.error(f"Erro carregando eventos históricos do PFR: {e}. O formato da tabela pode ter mudado.")
+        st.error(f"Erro carregando e processando eventos do NFLverse: {e}")
         return pd.DataFrame()
 
 
-# --- O restante do código (load_live_events_from_espn, display_scoreboard, App Principal) permanece o mesmo ---
-
-# --- CARREGAMENTO DE DADOS (PFR) ---
-historical_data = load_historical_events_from_pfr(CURRENT_PFR_YEAR)
+# --- CARREGAMENTO DE DADOS (NFLVERSE - SUBSTITUI PFR) ---
+# Altera a chamada da função para a nova fonte de dados
+historical_data = load_historical_events_from_nflverse(CURRENT_PFR_YEAR)
 
 
 # --- CARREGAMENTO DE DADOS (ESPN) ---
@@ -184,7 +158,7 @@ def load_live_events_from_espn():
 # --- FUNÇÃO DE BUSCA E VISUALIZAÇÃO ---
 
 def display_scoreboard(df_pfr, current_week_espn=None):
-    """Exibe o placar formatado com base nos dados históricos do PFR."""
+    """Exibe o placar formatado com base nos dados históricos do PFR (agora nflverse)."""
 
     if df_pfr.empty:
         st.warning("Não há dados históricos disponíveis para exibição.")
@@ -196,7 +170,7 @@ def display_scoreboard(df_pfr, current_week_espn=None):
         df_display = df_pfr[df_pfr['Week'] == current_week_espn].copy()
     else:
         max_week = df_pfr['Week'].max()
-        st.subheader(f"🏈 Calendário da Temporada {CURRENT_PFR_YEAR} (Semana {max_week} - PFR)")
+        st.subheader(f"🏈 Calendário da Temporada {CURRENT_PFR_YEAR} (Semana {max_week} - NFLverse)")
         df_display = df_pfr[df_pfr['Week'] == max_week].copy()
     
     # Prepara o DataFrame para exibição
@@ -232,10 +206,10 @@ def display_scoreboard(df_pfr, current_week_espn=None):
             winner_pts = game['Winner_Pts']
             loser_pts = game['Loser_Pts']
 
-            # Define o status do jogo para jogos futuros que o PFR pode listar como "finalizados" (0-0)
+            # Define o status do jogo. Para nflverse, jogos com scores > 0 já estão finalizados.
             status_text = "FINALIZADO"
             if winner_pts == 0 and loser_pts == 0:
-                status_text = "AGENDADO"
+                status_text = "AGENDADO" # Usado se o nflverse listar jogos futuros
 
             # Card com estilização básica
             st.markdown(
@@ -282,13 +256,13 @@ def display_scoreboard(df_pfr, current_week_espn=None):
 # --- APLICAÇÃO PRINCIPAL ---
 
 st.title(f"🏈 Dashboard Histórico NFL {CURRENT_PFR_YEAR}")
-st.markdown(f"**Fonte de dados:** ESPN (Semana Atual) e Pro-Football-Reference (Resultados Históricos para {CURRENT_PFR_YEAR})")
+st.markdown(f"**Fonte de dados:** ESPN (Semana Atual) e **NFLverse** (Resultados Históricos para {CURRENT_PFR_YEAR})")
 
 # 1. Carrega dados da ESPN para saber a semana atual
 current_week_espn, live_events = load_live_events_from_espn()
 
 if historical_data.empty:
-    st.error("Não foi possível carregar o calendário histórico do PFR. O ano pode estar incorreto, ou a estrutura da página mudou.")
+    st.error("Não foi possível carregar o calendário histórico do NFLverse. Verifique se o ano está correto ou se a URL de dados mudou.")
 else:
     # 2. Exibe o placar
     display_scoreboard(historical_data, current_week_espn)
@@ -305,7 +279,8 @@ if not historical_data.empty:
     if current_week_espn in all_weeks:
         default_index = all_weeks.index(current_week_espn)
     elif all_weeks:
-        default_index = all_weeks.index(all_weeks[-1]) # Seleciona a última semana se a atual não for encontrada
+        # Seleciona a última semana se a atual não for encontrada
+        default_index = all_weeks.index(all_weeks[-1]) 
 
     selected_week = st.selectbox(
         'Selecione a Semana para Visualizar:',
