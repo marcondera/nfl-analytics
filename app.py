@@ -16,7 +16,7 @@ CURRENT_PFR_YEAR = 2025
 # Configurações iniciais do Streamlit (título, layout)
 st.set_page_config(page_title=f"🏈 NFL Dashboard Histórico {CURRENT_PFR_YEAR}", layout="wide", page_icon="🏈")
 
-# NOVO: Injeção de CSS para o tema escuro/foco NFL (Garante que o design seja aplicado corretamente)
+# INJEÇÃO DE CSS: DEVE USAR unsafe_allow_html=True
 st.markdown("""
 <style>
     /* Fundo principal e containers */
@@ -75,10 +75,10 @@ NFLVERSE_GAMES_URL = "https://raw.githubusercontent.com/nflverse/nfldata/master/
 LOGO_MAP = {
     "SF": "sf", "BUF": "buf", "ATL": "atl", "BAL": "bal", "CAR": "car", "CIN": "cin",
     "CHI": "chi", "CLE": "cle", "DAL": "dal", "DEN": "den", "DET": "det", "GB": "gb",
-    "HOU": "hou", "ind": "ind", "JAX": "jac", "KC": "kc", "LAC": "lac", "LAR": "lar",
+    "HOU": "hou", "IND": "ind", "JAX": "jac", "KC": "kc", "LAC": "lac", "LAR": "lar",
     "LV": "lv", "MIA": "mia", "MIN": "min", "NE": "ne", "NO": "no", "NYG": "nyg",
-    "NYJ": "nyj", "PHI": "phi", "pit": "pit", "PIT": "pit", "SEA": "sea", "TB": "tb", "TEN": "ten",
-    "ARI": "ari", "WAS": "wsh", "WSH": "wsh", "IND": "ind" # Incluindo IND em upper case
+    "NYJ": "nyj", "PHI": "phi", "PIT": "pit", "SEA": "sea", "TB": "tb", "TEN": "ten",
+    "ARI": "ari", "WAS": "wsh", "WSH": "wsh"
 }
 
 # Mapeamento de nomes completos/curtos para exibição
@@ -250,6 +250,7 @@ def calculate_standings(df_games):
     
     # Adiciona Conferência e Divisão (Usando .get para ser mais defensivo)
     df_standings['Conf'] = df_standings['Abbr'].apply(lambda x: TEAM_CONFERENCE_DIVISION_MAP.get(x, {}).get('conf', 'N/A'))
+    # Fim da correção anterior que estava cortada:
     df_standings['Div'] = df_standings['Abbr'].apply(lambda x: TEAM_CONFERENCE_DIVISION_MAP.get(x, {}).get('div', 'N/A'))
     
     # Remove times que não estão no mapeamento (caso o nflverse tenha times antigos)
@@ -269,13 +270,15 @@ def display_standings(df_standings, conference_name):
     """Exibe a classificação por divisão para a Conferência especificada."""
     
     conf_color = "#FF4B4B" if conference_name == 'AFC' else "#4CAF50"
-    st.markdown(f"<h3 style='color: {conf_color}; margin-bottom: 15px;'>{conference_name}</h3>", unsafe_allow_html=True)
+    # Certifique-se que unsafe_allow_html=True está aqui
+    st.markdown(f"<h3 style='color: {conf_color}; margin-bottom: 15px;'>{conference_name}</h3>", unsafe_allow_html=True) 
     
     conf_df = df_standings[df_standings['Conf'] == conference_name].copy()
     
     divisions = sorted(conf_df['Div'].unique())
 
     for div in divisions:
+        # Certifique-se que unsafe_allow_html=True está aqui
         st.markdown(f"<h5 style='color: #8D99AE; margin-bottom: 5px; margin-top: 15px;'>Divisão {div}</h5>", unsafe_allow_html=True)
         
         div_df = conf_df[conf_df['Div'] == div].copy()
@@ -299,6 +302,7 @@ def display_standings(df_standings, conference_name):
             }
         )
 
+# ESTA É A FUNÇÃO QUE ESTAVA FALTANDO OU INCOMPLETA!
 def display_scoreboard(df_pfr, current_week_espn=None):
     """Exibe o placar formatado com o novo design."""
 
@@ -339,7 +343,7 @@ def display_scoreboard(df_pfr, current_week_espn=None):
 
             status_text = "FINALIZADO"
             
-            # NOVO DESIGN DE CARD (Rebranding)
+            # NOVO DESIGN DE CARD (USANDO HTML INJETADO)
             st.markdown(
                 f"""
                 <div style="
@@ -378,8 +382,9 @@ def display_scoreboard(df_pfr, current_week_espn=None):
                     </p>
                 </div>
                 """,
-                unsafe_allow_html=True
+                unsafe_allow_html=True # OBRIGATÓRIO para renderizar o card
             )
+
 
 # --- CARREGAMENTO GLOBAL DE DADOS ---
 # Carrega dados históricos
@@ -390,7 +395,7 @@ current_week_espn, live_events = load_live_events_from_espn()
 
 # --- APLICAÇÃO PRINCIPAL (EXECUÇÃO) ---
 
-# NOVO DESIGN: Título principal
+# NOVO DESIGN: Título principal (USANDO HTML INJETADO)
 st.markdown(
     f"<h1 style='color: #4CAF50;'>🏈 Dashboard Histórico NFL {CURRENT_PFR_YEAR}</h1>", 
     unsafe_allow_html=True
@@ -446,7 +451,7 @@ else:
             st.subheader(f"Resultados da Semana {selected_week} ({CURRENT_PFR_YEAR})")
             
             df_selected_week['Placar Final'] = df_selected_week.apply(
-                lambda row: f"**{row['Winner_PFR']}** {int(row['Winner_Pts'])} - {int(row['Loser_Pts'])} **{row['Loser_PFR']}**", 
+                lambda row: f"**{row['Winner_PFR']}** {int(row['Winner_Pts'])} - {int(row['Loser_PFR'])} **{row['Loser_PFR']}**", 
                 axis=1
             )
             
