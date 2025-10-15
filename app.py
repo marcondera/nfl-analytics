@@ -53,78 +53,83 @@ TEAM_CONFERENCE_DIVISION_MAP = {
 
 def inject_custom_css():
     """
-    Injeta o CSS customizado UMA VEZ no topo da aplicação Streamlit.
-    Isso evita que o bloco <style> seja re-renderizado a cada chamada de placar,
-    resolvendo o problema de 'vazamento' e duplicação de estilos.
+    Injeta o CSS customizado UMA VEZ no topo da aplicação Streamlit, utilizando
+    .stMarkdown para tentar escopar os estilos injetados e prefixando com a
+    classe .scoreboard-card para evitar o vazamento.
     """
     SCOREBOARD_CSS = """
     <style>
-    /* Estilo do container do placar */
-    .scoreboard-card {
+    /* ---------------------------------------------------------------------- */
+    /* CORREÇÃO DO VAZAMENTO: O CSS é rigorosamente escopado para o placar.  */
+    /* Usamos .stMarkdown para evitar vazar para o Streamlit nativo.         */
+    /* ---------------------------------------------------------------------- */
+
+    /* Estilo do container do placar (seletor principal) */
+    .stMarkdown .scoreboard-card {
         border-radius: 12px;
         padding: 15px;
         margin-bottom: 20px;
-        /* Sombra mais suave */
         box-shadow: 0 6px 15px rgba(0, 0, 0, 0.08); 
         transition: transform 0.2s, box-shadow 0.2s;
-        background: #ffffff; /* Fundo branco puro para modernidade */
-        border: 1px solid #e9ecef; /* Borda sutil */
+        background: #ffffff; 
+        border: 1px solid #e9ecef;
     }
-    .scoreboard-card:hover {
+    .stMarkdown .scoreboard-card:hover {
         transform: translateY(-3px);
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15); /* Sombra mais evidente no hover */
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15); 
     }
-    /* Layout principal com Flexbox para centralização horizontal e vertical */
-    .game-layout {
+    /* Layout principal com Flexbox */
+    .stMarkdown .game-layout {
         display: flex;
-        align-items: center; /* Centraliza verticalmente todos os itens */
-        justify-content: space-between; /* Distribui o espaço entre os times e o placar */
+        align-items: center;
+        justify-content: space-between;
     }
     /* Estilo do Score do time vencedor */
-    .score-winner {
-        font-family: 'Inter', sans-serif; /* Fonte moderna */
-        font-size: 2.5em; /* Score grande e impactante */
+    .stMarkdown .score-winner {
+        font-family: 'Inter', sans-serif;
+        font-size: 2.5em;
         font-weight: 900;
-        color: #007bff; /* Azul primário forte (moderno) */
+        color: #007bff;
         margin: 0;
         padding: 0 15px;
         line-height: 1; 
     }
     /* Estilo do Score do time perdedor */
-    .score-loser {
+    .stMarkdown .score-loser {
         font-family: 'Inter', sans-serif;
         font-size: 2.0em;
         font-weight: 500;
-        color: #adb5bd; /* Cinza claro para o perdedor */
+        color: #adb5bd;
         margin: 0;
         padding: 0 15px;
         line-height: 1;
     }
-    /* Container central (Scores + VS) - CHAVE PARA A CENTRALIZAÇÃO */
-    .score-container {
+    /* Container central (Scores + VS) */
+    .stMarkdown .score-container {
         display: flex;
         align-items: center;
-        justify-content: center; /* CENTRALIZAÇÃO PERFEITA */
-        flex-grow: 1; /* Ocupa o espaço central disponível */
-        min-width: 120px; /* Garante que tenha espaço para centralizar */
+        justify-content: center;
+        flex-grow: 1;
+        min-width: 120px;
     }
-    .vs-text {
+    .stMarkdown .vs-text {
         font-size: 1.2em;
         font-weight: 700;
-        color: #6c757d; /* Cinza escuro para o VS */
+        color: #6c757d;
         margin: 0 5px;
     }
     /* Info do time (logo + sigla) */
-    .team-info {
+    .stMarkdown .team-info {
         display: flex;
         flex-direction: column;
         align-items: center;
         text-align: center;
-        width: 30%; /* Controla a largura das colunas laterais */
-        min-width: 80px; /* Mínimo para visualização em mobile */
+        width: 30%;
+        min-width: 80px;
     }
-    .team-info img {
-        width: 50px; /* Logo maior */
+    /* Imagem dentro do time-info */
+    .stMarkdown .team-info img {
+        width: 50px;
         height: 50px;
         border-radius: 50%;
         margin-bottom: 5px;
@@ -132,14 +137,15 @@ def inject_custom_css():
         padding: 2px;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
     }
-    .team-info strong {
+    /* Sigla do time - USADO NO PLACAR (NÃO VAZA) */
+    .stMarkdown .team-info strong {
         font-size: 1.0em;
         line-height: 1.2;
         color: #343a40;
     }
     /* Status (Finalizado) */
-    .status-final {
-        text-align: center; /* Centraliza a info de status */
+    .stMarkdown .status-final {
+        text-align: center;
         font-size: 0.85em;
         color: #198754;
         font-weight: bold;
@@ -147,7 +153,7 @@ def inject_custom_css():
         padding-top: 8px;
         border-top: 1px solid #f8f9fa;
     }
-    .game-date {
+    .stMarkdown .game-date {
         text-align: center;
         font-size: 0.8em;
         color: #6c757d;
@@ -157,14 +163,14 @@ def inject_custom_css():
     }
     /* Ajuste para telas menores */
     @media (max-width: 600px) {
-        .score-winner, .score-loser {
+        .stMarkdown .score-winner, .stMarkdown .score-loser {
             font-size: 1.8em; 
             padding: 0 8px;
         }
-        .vs-text {
+        .stMarkdown .vs-text {
             font-size: 1.0em;
         }
-        .team-info img {
+        .stMarkdown .team-info img {
             width: 40px;
             height: 40px;
         }
@@ -346,10 +352,13 @@ def display_standings(df_standings, conference_name):
 
     for div in divisions:
         # Usando HTML/CSS para um cabeçalho de divisão mais moderno e com espaçamento
+        # Nota: O uso de <h4> aqui não deve vazar, pois é um bloco st.markdown diferente
+        # da injeção global de <style>, mas o seletor mais seguro seria usar st.subheader ou st.header.
+        # Mantendo como st.markdown para a estética de separador:
         st.markdown(f"""
-            <h4 style="color: #6c757d; margin-top: 15px; margin-bottom: 5px; border-bottom: 1px solid #e9ecef;">
+            <div style="color: #6c757d; margin-top: 15px; margin-bottom: 5px; border-bottom: 1px solid #e9ecef; font-weight: 600; font-size: 1.2em;">
                 Divisão {div}
-            </h4>
+            </div>
         """, unsafe_allow_html=True)
         
         div_df = conf_df[conf_df['Div'] == div].copy()
@@ -421,7 +430,9 @@ def display_scoreboard(df_pfr, current_week_espn=None):
                 winner_pts = int(game['Winner_Pts'])
                 loser_pts = int(game['Loser_Pts'])
                 
-                # HTML para o cartão de placar moderno e CENTRALIZADO
+                # HTML para o cartão de placar moderno e CENTRALIZADO.
+                # As classes (scoreboard-card, team-info, score-winner, etc.) serão
+                # atingidas apenas pelo CSS rigidamente escopado.
                 game_html = f"""
                 <div class="scoreboard-card">
                     <div class="game-date">
@@ -459,7 +470,7 @@ def display_scoreboard(df_pfr, current_week_espn=None):
 
 # --- CARREGAMENTO GLOBAL DE DADOS E INJEÇÃO DE CSS ---
 
-# 0. INJETA O CSS UMA VEZ PARA EVITAR VAZAMENTO!
+# 0. INJETA O CSS UMA VEZ PARA EVITAR VAZAMENTO (agora com escopo mais rígido)!
 inject_custom_css()
 
 # 1. Tenta carregar os dados
