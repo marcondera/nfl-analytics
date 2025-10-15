@@ -13,7 +13,7 @@ import time
 
 # CORRIGIDO: Voltando para 2023. Os anos mais recentes (2024/2025) estão sendo
 # bloqueados de forma agressiva pelo PFR com o erro 403 (Forbidden).
-CURRENT_PFR_YEAR = 2023 
+CURRENT_PFR_YEAR = 2025
 
 st.set_page_config(page_title=f"🏈 NFL Dashboard Histórico {CURRENT_PFR_YEAR}", layout="wide", page_icon="🏈")
 
