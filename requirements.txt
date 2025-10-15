@@ -1,6 +1,4 @@
 streamlit
 pandas
 requests
-numpy
-lxml
 python-dateutil
