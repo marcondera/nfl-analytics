@@ -540,3 +540,4 @@ with col_center:
                 )
             else:
                 st.info(f"Nenhum jogo finalizado encontrado na base histórica para a Semana {selected_week}.")
+ 
