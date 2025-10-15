@@ -12,7 +12,7 @@ import numpy as np
 st.set_page_config(page_title="🏈 NFL Dashboard Histórico", layout="wide", page_icon="🏈")
 
 # Constante: Ano para buscar dados históricos no PFR
-CURRENT_PFR_YEAR = 2024 
+CURRENT_PFR_YEAR = 2025 
 
 # Endpoints
 API_URL_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
