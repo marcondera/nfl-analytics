@@ -19,7 +19,7 @@ st.set_page_config(page_title=f"🏈 NFL Dashboard Histórico {CURRENT_PFR_YEAR}
 # Endpoints
 API_URL_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
 # Nova URL de dados históricos - fonte mais robusta e estável
-NFLVERSE_GAMES_URL = "https://raw.githubusercontent.com/nflverse/nflverse-data/master/files/games.csv"
+NFLVERSE_GAMES_URL = "https://raw.githubusercontent.com/nflverse/nfldata/refs/heads/master/data/games.csv"
 
 # Mapa de Logos (nflverse usa as abreviações padrão que já mapeamos)
 LOGO_MAP = {
