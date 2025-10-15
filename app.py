@@ -12,7 +12,7 @@ import numpy as np
 st.set_page_config(page_title="🏈 NFL Dashboard Histórico", layout="wide", page_icon="🏈")
 
 # Constante: Ano para buscar dados históricos no PFR
-CURRENT_PFR_YEAR = 2025 
+CURRENT_PFR_YEAR = 2024 
 
 # Endpoints
 API_URL_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
@@ -24,7 +24,7 @@ LOGO_MAP = {
     "CHI": "chi", "CLE": "cle", "DAL": "dal", "DEN": "den", "DET": "det", "GB": "gb",
     "HOU": "hou", "IND": "ind", "JAX": "jac", "KC": "kc", "LAC": "lac", "LAR": "lar",
     "LV": "lv", "MIA": "mia", "MIN": "min", "NE": "ne", "NO": "no", "NYG": "nyg",
-    "NYJ": "nyj", "PHI": "phi", "PIT": "pit", "SEA": "sea", "TB": "tb", "TEN": "ten",
+    "NYJ": "nyj", "PHI": "phi", "pit": "pit", "PIT": "pit", "SEA": "sea", "TB": "tb", "TEN": "ten",
     "ARI": "ari", "WAS": "wsh", "WSH": "wsh"
 }
 
@@ -51,17 +51,23 @@ def get_logo_url(abbreviation):
     return f"https://a.espncdn.com/i/teamlogos/nfl/500/{abbr}.png"
 
 def normalize_team_name(name):
-    """Converte o nome do time PFR em abreviação ESPN."""
+    """
+    Converte o nome do time PFR em abreviação ESPN.
+    Retorna o nome original se não for encontrado para que possamos detectar o N/A.
+    """
+    name = str(name).strip()
     # Tenta mapear o nome completo ou partes dele
     for key, abbr in PFR_ABBR_MAP.items():
-        if key in name:
+        if key.strip().lower() == name.lower():
             return abbr
+    
     # Tenta usar a última palavra como abreviação curta (ex: Eagles -> PHI)
     last_word = name.split()[-1]
     for key, abbr in PFR_ABBR_MAP.items():
-        if key == last_word:
+        if key.strip().lower() == last_word.lower():
             return abbr
-    return name.upper() # Fallback
+            
+    return name.upper() # Fallback, que será 'N/A' se o nome for lixo
 
 def get_period_name(period):
     period_map = {1: "1º Quarto", 2: "2º Quarto", 3: "3º Quarto", 4: "4º Quarto"}
@@ -107,32 +113,28 @@ def load_historical_events_from_pfr(year):
         column_map = {}
         
         # Identifica a coluna 'Week' (Semana).
-        # Procura por colunas que contenham 'Week' e geralmente 'Unnamed'
         original_week_col = next((c for c in df.columns if 'Week' in c and 'Unnamed' in c), None)
         if not original_week_col:
-            # Fallback: procura apenas por 'Week'
             original_week_col = next((c for c in df.columns if 'Week' in c), None)
             
         if not original_week_col:
             st.error("Coluna 'Week' (Semana) não encontrada na tabela do PFR. O formato do site pode ter mudado drasticamente.")
             return []
             
-        # Adiciona a Week ao mapeamento
         column_map[original_week_col] = 'Week'
             
-        # Mapeamento das outras colunas essenciais, buscando o nome mais provável
-        original_day_col = next((c for c in df.columns if 'Day' in c and 'Unnamed' in c), None)
-        if original_day_col: column_map[original_day_col] = 'Day'
-        
+        # Mapeamento das outras colunas essenciais
         original_date_col = next((c for c in df.columns if 'Date' in c and 'Unnamed' in c), None)
         if original_date_col: column_map[original_date_col] = 'Date'
 
-        original_winner_col = next((c for c in df.columns if 'Winner' in c and 'tie' in c), None)
+        # Busca por colunas que contenham "Winner/Tie" e "Loser/Tie" para maior flexibilidade
+        original_winner_col = next((c for c in df.columns if 'Winner' in c and 'Tie' in c), None)
         if original_winner_col: column_map[original_winner_col] = 'Winner'
 
-        original_loser_col = next((c for c in df.columns if 'Loser' in c and 'tie' in c), None)
+        original_loser_col = next((c for c in df.columns if 'Loser' in c and 'Tie' in c), None)
         if original_loser_col: column_map[original_loser_col] = 'Loser'
         
+        # Pontuações
         original_pts_w_col = next((c for c in df.columns if 'PtsW' in c), None)
         if original_pts_w_col: column_map[original_pts_w_col] = 'PtsW'
         
@@ -148,10 +150,9 @@ def load_historical_events_from_pfr(year):
             return []
             
         # Limpeza e filtragem
-        # Filtra linhas onde 'Week' não é um número (remove cabeçalhos repetidos e linhas vazias)
         df = df.dropna(subset=['Week']).copy()
         
-        # Converte a coluna 'Week' para string para poder filtrar o cabeçalho 'Week'
+        # Converte a coluna 'Week' para string para poder filtrar o cabeçalho 'Week' e linhas vazias
         df['Week_str'] = df['Week'].astype(str).str.strip()
         df = df[df['Week_str'] != 'Week'].copy()
         df = df.drop(columns=['Week_str'])
@@ -160,62 +161,62 @@ def load_historical_events_from_pfr(year):
         games_list = []
         for index, row in df.iterrows():
             
-            # Limpa o campo de vencedor para identificar o time da casa/fora e a abreviação
-            winner_name = str(row['Winner']).replace('@', '').strip()
-            loser_name = str(row['Loser']).replace('@', '').strip()
+            # --- Lógica de Correção de Status e N/A ---
+            winner_raw = str(row.get('Winner', '')).strip()
+            loser_raw = str(row.get('Loser', '')).strip()
             
-            # PFR usa '@' para indicar que o vencedor estava jogando FORA
-            # Se o vencedor tem '@', ele é o time AWAY. O perdedor é o HOME.
-            is_winner_away = str(row['Winner']).strip().endswith('@')
+            # Limpa o campo de vencedor/perdedor para identificação
+            winner_name = winner_raw.replace('@', '').strip()
+            loser_name = loser_raw.replace('@', '').strip()
             
-            # Se o jogo ainda não ocorreu, PFR usa 'nan' nos campos de pontuação/vencedor
-            is_finalized = not pd.isna(row['PtsW']) and not pd.isna(row['PtsL'])
+            # Verifica se o jogo realmente tem pontuações (indicando que foi finalizado)
+            is_finalized = not pd.isna(row.get('PtsW')) and not pd.isna(row.get('PtsL'))
             
             try:
                 week_num = int(row['Week'])
             except ValueError:
-                continue # Pula se a semana não for um número válido (ex: cabeçalho)
+                continue # Pula se a semana não for um número válido
             
-            if is_finalized:
+            # 1. TRATAMENTO DE JOGOS FUTUROS (Ajuste Principal)
+            if not is_finalized:
+                # Se não tem pontuação, é um jogo futuro/agendado, independentemente do que PFR colocou em Winner/Loser.
+                status_pt = "Agendado"
+                home_score = 0
+                away_score = 0
+                winner = "N/A"
+
+                # Define quem é Home/Away: se Winner_raw tem '@', o perdedor é o time da casa.
+                if '@' in winner_raw:
+                    away_abbr = normalize_team_name(winner_name)
+                    home_abbr = normalize_team_name(loser_name)
+                elif '@' in loser_raw:
+                    home_abbr = normalize_team_name(winner_name)
+                    away_abbr = normalize_team_name(loser_name)
+                else:
+                    # Se não tem '@' em nenhum, PFR geralmente lista o Home (Vencedor) primeiro
+                    home_abbr = normalize_team_name(winner_name)
+                    away_abbr = normalize_team_name(loser_name)
+                    
+            # 2. TRATAMENTO DE JOGOS FINALIZADOS (Passado)
+            else:
+                status_pt = "Finalizado"
+                is_winner_away = winner_raw.endswith('@')
+
                 # O PFR usa a coluna 'Loser' para quem perdeu e 'Winner' para quem ganhou.
-                # Se o vencedor tem '@', ele jogou fora (AWAY). O perdedor é o HOME.
                 if is_winner_away:
                     away_abbr = normalize_team_name(winner_name)
                     home_abbr = normalize_team_name(loser_name)
                     away_score = int(row['PtsW'])
                     home_score = int(row['PtsL'])
                 else:
-                    # Se o vencedor não tem '@', ele jogou em casa (HOME). O perdedor é o AWAY.
                     home_abbr = normalize_team_name(winner_name)
                     away_abbr = normalize_team_name(loser_name)
                     home_score = int(row['PtsW'])
                     away_score = int(row['PtsL'])
-                
-                status_pt = "Finalizado"
+                    
                 winner = home_abbr if home_score > away_score else away_abbr
-            else:
-                # Jogo não finalizado (programado).
                 
-                # Invertendo a lógica: o time com '@' na coluna Loser é o time de FORA (Away).
-                # O outro time é o time da CASA (Home).
-                if '@' in str(row['Loser']):
-                    away_abbr = normalize_team_name(loser_name)
-                    home_abbr = normalize_team_name(winner_name)
-                elif '@' in str(row['Winner']): # Pouco comum, mas verifica
-                    away_abbr = normalize_team_name(winner_name)
-                    home_abbr = normalize_team_name(loser_name)
-                else:
-                     # Se não há '@', PFR geralmente lista o time HOME primeiro. (Winner é Home)
-                    home_abbr = normalize_team_name(winner_name)
-                    away_abbr = normalize_team_name(loser_name)
-
-
-                status_pt = "Agendado"
-                home_score = 0
-                away_score = 0
-                winner = "N/A"
-
-            # Formato de data e timestamp (o PFR só dá a data, não a hora)
+            # Formato de data e timestamp
             try:
                 date_str = f"{row['Date']} {year}"
                 date_obj = datetime.strptime(date_str, '%B %d %Y')
@@ -224,6 +225,10 @@ def load_historical_events_from_pfr(year):
             except:
                 date_formatada = "N/A"
                 timestamp_iso = ""
+
+            # Filtra jogos com N/A (que geralmente são problemas no mapeamento)
+            if home_abbr == 'N/A' or away_abbr == 'N/A' or home_abbr == '' or away_abbr == '':
+                 continue # Pula jogos que não puderam ser identificados corretamente
 
             games_list.append({
                 'id': f"PFR-{year}-{week_num}-{home_abbr}-{away_abbr}",
@@ -237,6 +242,7 @@ def load_historical_events_from_pfr(year):
                 'home_score': home_score,
                 'away_score': away_score,
                 'winner': winner,
+                # Usa normalize_team_name para garantir que as URLs do logo sejam corretas
                 'home_logo': get_logo_url(home_abbr),
                 'away_logo': get_logo_url(away_abbr)
             })
@@ -374,7 +380,7 @@ def compute_standings(finalized_games):
             stats.setdefault(t, {'team':t, 'W':0, 'L':0, 'T':0, 'PF':0, 'PA':0, 'games':[]})
         
         # Ignora times que não foram mapeados corretamente (fallback)
-        if h in stats and a in stats:
+        if h in stats and a in stats and h != 'N/A' and a != 'N/A':
             stats[h]['PF'] += hs
             stats[h]['PA'] += as_
             stats[a]['PF'] += as_
@@ -653,8 +659,6 @@ html_code = html_template.replace("PAYLOAD_JSON", json.dumps(payload))
 # cálculo de altura para evitar corte
 num = len(final_events)
 rows = math.ceil(num / 3)
-# Aumentei o limite máximo de altura para garantir que todo o conteúdo seja exibido.
-# E mudei scrolling para True.
 height = min(800 + rows * 120, 15000)
 
 st.download_button("📥 Baixar histórico CSV", data=pd.DataFrame(final_events).to_csv(index=False).encode('utf-8'),
