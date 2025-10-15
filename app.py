@@ -12,7 +12,7 @@ import numpy as np
 st.set_page_config(page_title="🏈 NFL Dashboard Histórico", layout="wide", page_icon="🏈")
 
 # Constante: Ano para buscar dados históricos no PFR
-CURRENT_PFR_YEAR = 2024 
+CURRENT_PFR_YEAR = 2025 
 
 # Endpoints
 API_URL_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
@@ -97,17 +97,34 @@ def load_historical_events_from_pfr(year):
 
 
         df.columns = ['_'.join(col).strip() for col in df.columns.values]
-        df = df.rename(columns={'Unnamed: 0_level_0_Week': 'Week', 
-                                'Unnamed: 0_level_0_Day': 'Day',
-                                'Unnamed: 0_level_0_Date': 'Date',
-                                'Winner/tie_Unnamed: 3_level_1': 'Winner', # Nome do vencedor ou Tie
-                                'Loser/tie_Unnamed: 5_level_1': 'Loser', # Nome do perdedor ou Tie
-                                'PtsW_Unnamed: 7_level_1': 'PtsW',
-                                'PtsL_Unnamed: 9_level_1': 'PtsL'})
+        
+        # Renomeação ajustada: A coluna da semana pode ter mudado. 
+        # Tenta identificar a coluna da semana pelo nome 'Week' ou 'Unnamed: 0_level_0_Week'
+        week_col = next((c for c in df.columns if 'Week' in c), None)
+        
+        if not week_col:
+            st.error("Coluna 'Week' não encontrada na tabela do PFR. O formato do site pode ter mudado.")
+            return []
+
+        df = df.rename(columns={
+            week_col: 'Week', 
+            'Unnamed: 0_level_0_Day': 'Day',
+            'Unnamed: 0_level_0_Date': 'Date',
+            'Winner/tie_Unnamed: 3_level_1': 'Winner', 
+            'Loser/tie_Unnamed: 5_level_1': 'Loser', 
+            'PtsW_Unnamed: 7_level_1': 'PtsW',
+            'PtsL_Unnamed: 9_level_1': 'PtsL'
+        })
         
         # Limpeza e filtragem
+        # Filtra linhas onde 'Week' não é um número (remove cabeçalhos repetidos e linhas vazias)
+        # O erro que você viu é por causa da linha abaixo: a coluna 'Week' deve ser validada antes.
         df = df.dropna(subset=['Week']).copy()
-        df = df[df['Week'] != 'Week'].copy()
+        
+        # Converte a coluna 'Week' para string para poder filtrar o cabeçalho 'Week'
+        df['Week_str'] = df['Week'].astype(str).str.strip()
+        df = df[df['Week_str'] != 'Week'].copy()
+        df = df.drop(columns=['Week_str'])
         
         # Conversão para lista de eventos (estrutura parecida com a da ESPN)
         games_list = []
@@ -123,6 +140,11 @@ def load_historical_events_from_pfr(year):
             
             # Se o jogo ainda não ocorreu, PFR usa 'nan' nos campos de pontuação/vencedor
             is_finalized = not pd.isna(row['PtsW']) and not pd.isna(row['PtsL'])
+            
+            try:
+                week_num = int(row['Week'])
+            except ValueError:
+                continue # Pula se a semana não for um número válido (ex: cabeçalho)
             
             if is_finalized:
                 # O PFR usa a coluna 'Loser' para quem perdeu e 'Winner' para quem ganhou.
@@ -142,16 +164,10 @@ def load_historical_events_from_pfr(year):
                 status_pt = "Finalizado"
                 winner = home_abbr if home_score > away_score else away_abbr
             else:
-                # Jogo não finalizado (programado). PFR usa o perdedor como o time de FORA
-                # e o vencedor como o time da CASA, mas com 'nan' nas pontuações.
-                # É preciso adivinhar quem é o Home/Away: time com '@' na coluna Loser é o AWAY.
-                
-                # Para jogos não jogados, o PFR usa Winner e Loser para os dois times.
-                # O time com '@' na coluna 'Loser' é o time AWAY.
+                # Jogo não finalizado (programado).
                 
                 # Invertendo a lógica: o time com '@' na coluna Loser é o time de FORA (Away).
                 # O outro time é o time da CASA (Home).
-                # Nota: Esta é a parte mais frágil e pode exigir ajuste fino dependendo da temporada.
                 if '@' in str(row['Loser']):
                     away_abbr = normalize_team_name(loser_name)
                     home_abbr = normalize_team_name(winner_name)
@@ -180,9 +196,9 @@ def load_historical_events_from_pfr(year):
                 timestamp_iso = ""
 
             games_list.append({
-                'id': f"PFR-{year}-{row['Week']}-{home_abbr}-{away_abbr}",
+                'id': f"PFR-{year}-{week_num}-{home_abbr}-{away_abbr}",
                 'name': f"{away_abbr} @ {home_abbr}",
-                'week': int(row['Week']),
+                'week': week_num,
                 'date': date_formatada,
                 'timestamp': timestamp_iso,
                 'status': status_pt,
@@ -198,42 +214,9 @@ def load_historical_events_from_pfr(year):
         return games_list
     
     except Exception as e:
-        st.error(f"Erro carregando eventos históricos do PFR: {e}")
+        # Imprime o erro original para debug
+        st.error(f"Erro carregando eventos históricos do PFR: {e}. Verifique o formato da tabela do PFR.")
         return []
-
-# --- FUNÇÃO DE CARREGAMENTO ATUAL (ESPN SCOREBOARD) ---
-@st.cache_data(ttl=120)
-def load_current_events_from_espn():
-    """
-    Usa o endpoint /scoreboard para capturar jogos agendados/em andamento/finalizados recentes.
-    Retorna um mapa de jogos por ID para fácil consulta.
-    """
-    try:
-        resp = requests.get(API_URL_SCOREBOARD, timeout=10)
-        resp.raise_for_status()
-        j = resp.json()
-        events = j.get('events', [])
-        
-        current_data_map = {}
-        for evt in events:
-            comp = evt.get('competitions', [])[0]
-            status_obj = comp.get('status', {})
-            stype = status_obj.get('type', {}) or {}
-            stype_state = stype.get('state')
-            
-            # Só se importa com jogos em andamento ou pós
-            if stype_state in ('in', 'post'):
-                parsed_data = parse_event_from_scoreboard(evt) # Reutiliza sua função original de parsing
-                if parsed_data:
-                    # Cria uma chave ID combinada (Time1-Time2) para tentar mapear com o PFR
-                    home_abbr = parsed_data['home']
-                    away_abbr = parsed_data['away']
-                    # ID simples para mapeamento (ignorando o ID específico do PFR)
-                    current_data_map[f"{away_abbr}@{home_abbr}"] = parsed_data
-        return current_data_map
-    except Exception as e:
-        st.warning(f"Erro carregando dados em tempo real da ESPN: {e}. Usando apenas dados históricos do PFR.")
-        return {}
 
 def parse_event_from_scoreboard(evt):
     # Sua função original (simplificada para não repetir)
