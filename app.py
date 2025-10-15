@@ -8,7 +8,7 @@ from io import StringIO
 
 # --- CONFIGURAÇÃO E ESTILO GLOBAL (Streamlit Nativo) ---
 
-CURRENT_PFR_YEAR = 2024 # Ajustado para 2024, pois 2025 provavelmente ainda não tem dados completos no NFLverse
+CURRENT_PFR_YEAR = 2025
 
 # Configurações iniciais do Streamlit (título, layout)
 st.set_page_config(page_title=f"🏈 NFL Dashboard Histórico {CURRENT_PFR_YEAR}", layout="wide", page_icon="🏈")
