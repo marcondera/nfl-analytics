@@ -16,7 +16,7 @@ CURRENT_PFR_YEAR = 2025
 
 # Endpoints
 API_URL_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
-PFR_URL_TEMPLATE = f"https://www.pro-football-reference.com/years/{CURRENT_PFR_YEAR}/games.htm"
+PFR_URL_TEMPLATE = f"https://www.pro-football-reference.com/years/{CURRENT_PFR_YEAR}/games.htm#games"
 
 # Mapa de Logos e Abbr para PFR (necessário para mapear nomes do PFR para logos da ESPN)
 LOGO_MAP = {
