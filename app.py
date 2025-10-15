@@ -11,6 +11,7 @@ from io import StringIO
 CURRENT_PFR_YEAR = 2025 
 
 # Configurações iniciais do Streamlit (título, layout)
+# ATENÇÃO: Adicionando unsafe_allow_html=True nas marcações para forçar a centralização precisa dos scores.
 st.set_page_config(page_title=f"🏈 NFL Dashboard {CURRENT_PFR_YEAR}", layout="wide", page_icon="🏈")
 
 
@@ -247,8 +248,8 @@ def display_standings(df_standings, conference_name):
 
 def display_scoreboard(df_pfr, current_week_espn=None):
     """
-    Exibe o placar formatado de forma compacta e com pontuações centralizadas
-    dentro de cada cartão de jogo, focando na estética nativa.
+    Exibe o placar formatado de forma compacta e com pontuações CENTRALIZADAS
+    dentro de cada cartão de jogo, usando HTML/CSS para forçar o alinhamento.
     """
 
     if df_pfr.empty:
@@ -296,29 +297,35 @@ def display_scoreboard(df_pfr, current_week_espn=None):
                         st.caption(f":calendar: {game['Date_Full']}")
                         
                         # Layout principal para o placar: [Vencedor] | [Scores + VS] | [Perdedor]
-                        col_w_info, col_scores, col_l_info = st.columns([1.5, 2, 1.5]) 
+                        # Ajuste fino das colunas
+                        col_w_info, col_scores, col_l_info = st.columns([1.5, 2.5, 1.5]) 
 
                         # 1. Info Vencedor
                         with col_w_info:
                             st.image(get_logo_url(winner_abbr), width=50)
                             st.markdown(f"**{winner_abbr}**")
 
-                        # 2. Scores Centralizados - USANDO COLUNAS INTERNAS SIMPLES PARA ALINHAMENTO
+                        # 2. Scores Centralizados - *** CORREÇÃO DE ALINHAMENTO COM HTML INLINE ***
                         with col_scores:
                             # 3 Colunas: [Score W] | [VS] | [Score L]
-                            col_score_w, col_vs_text, col_score_l = st.columns([1, 0.3, 1])
-
-                            with col_score_w:
-                                # Usar h3 ou h4 para forçar um tamanho maior e negrito
-                                st.subheader(str(winner_pts))
+                            # 1.0 vs 0.5 vs 1.0 para que o VS fique bem no centro da seção de scores
+                            col_score_w, col_vs_text, col_score_l = st.columns([1.0, 0.5, 1.0]) 
                             
+                            # Força o alinhamento do score do Vencedor no centro da sua coluna
+                            with col_score_w:
+                                st.markdown(f"<h3 style='text-align: center; color: #1E90FF; font-size: 24px;'>{winner_pts}</h3>", 
+                                            unsafe_allow_html=True)
+                            
+                            # Força o alinhamento do VS no centro
                             with col_vs_text:
-                                st.text("")
-                                st.caption(":red[VS]")
-                                st.text("")
+                                # Adiciona um pequeno margin-top para alinhar o VS verticalmente com os scores
+                                st.markdown("<p style='text-align: center; margin-top: 10px; font-weight: bold; color: red;'>VS</p>", 
+                                            unsafe_allow_html=True)
 
+                            # Força o alinhamento do score do Perdedor no centro da sua coluna
                             with col_score_l:
-                                st.subheader(str(loser_pts))
+                                st.markdown(f"<h3 style='text-align: center; font-size: 24px;'>{loser_pts}</h3>", 
+                                            unsafe_allow_html=True)
                             
                         # 3. Info Perdedor
                         with col_l_info:
@@ -398,8 +405,7 @@ with col_center:
             if not df_selected_week.empty:
                 st.subheader(f"Resultados Detalhados da Semana :red[{selected_week}] ({CURRENT_PFR_YEAR})")
                 
-                # CORREÇÃO: Removemos o markdown de cor (red/green) pois st.dataframe não o interpreta, 
-                # causando a exibição do texto literal. Usamos apenas texto formatado.
+                # A formatação de texto está correta agora (sem os códigos de cor literais)
                 df_selected_week['Placar Final'] = df_selected_week.apply(
                     lambda row: f"**{row['Winner_PFR']}** ({int(row['Winner_Pts'])}) venceu {row['Loser_PFR']} ({int(row['Loser_Pts'])})", 
                     axis=1
