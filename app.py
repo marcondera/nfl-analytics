@@ -8,10 +8,9 @@ from io import StringIO
 
 # --- CONFIGURAÇÃO E ESTILO GLOBAL (Streamlit Nativo) ---
 
-CURRENT_PFR_YEAR = 2025 
+CURRENT_PFR_YEAR = 2024 # Ajustado para 2024, pois 2025 provavelmente ainda não tem dados completos no NFLverse
 
 # Configurações iniciais do Streamlit (título, layout)
-# Mantém o layout 'wide' mas usaremos colunas para centralizar o conteúdo.
 st.set_page_config(page_title=f"🏈 NFL Dashboard Histórico {CURRENT_PFR_YEAR}", layout="wide", page_icon="🏈")
 
 
@@ -44,6 +43,7 @@ TEAM_CONFERENCE_DIVISION_MAP = {
     'BAL': {'conf': 'AFC', 'div': 'North'}, 'CIN': {'conf': 'AFC', 'div': 'North'}, 'CLE': {'conf': 'AFC', 'div': 'North'}, 'PIT': {'conf': 'AFC', 'div': 'North'},
     'HOU': {'conf': 'AFC', 'div': 'South'}, 'IND': {'conf': 'AFC', 'div': 'South'}, 'JAX': {'conf': 'AFC', 'div': 'South'}, 'TEN': {'conf': 'AFC', 'div': 'South'},
     'DEN': {'conf': 'AFC', 'div': 'West'}, 'KC': {'conf': 'AFC', 'div': 'West'}, 'LV': {'conf': 'AFC', 'div': 'West'}, 'LAC': {'conf': 'AFC', 'div': 'West'},
+
     'DAL': {'conf': 'NFC', 'div': 'East'}, 'NYG': {'conf': 'NFC', 'div': 'East'}, 'PHI': {'conf': 'NFC', 'div': 'East'}, 'WSH': {'conf': 'NFC', 'div': 'East'},
     'CHI': {'conf': 'NFC', 'div': 'North'}, 'DET': {'conf': 'NFC', 'div': 'North'}, 'GB': {'conf': 'NFC', 'div': 'North'}, 'MIN': {'conf': 'NFC', 'div': 'North'},
     'ATL': {'conf': 'NFC', 'div': 'South'}, 'CAR': {'conf': 'NFC', 'div': 'South'}, 'NO': {'conf': 'NFC', 'div': 'South'}, 'TB': {'conf': 'NFC', 'div': 'South'},
@@ -66,48 +66,49 @@ def get_team_display_name(abbr):
 @st.cache_data(ttl=3600)
 def load_historical_events_from_nflverse(year):
     """
-    Carrega o histórico de eventos (jogos) do nflverse (via CSV).
-    Adicionado tratamento de erro na leitura e sanitização de dados.
+    Carrega o histórico de eventos (jogos) do nflverse (via CSV),
+    padronizando abreviações para evitar KeyErrors.
     """
     st.info(f"⏳ Tentando carregar dados históricos do NFLverse para a temporada: **{year}**.")
 
     try:
-        # Tenta ler o CSV diretamente
         response = requests.get(NFLVERSE_GAMES_URL)
-        response.raise_for_status() # Levanta erro para status 4xx/5xx
+        response.raise_for_status()
         
         df = pd.read_csv(StringIO(response.text))
         
-        # Filtra pelo ano e tipo de jogo
         df_year = df[(df['season'] == year) & (df['game_type'] == 'REG')].copy()
         
-        # Converte scores para numérico, tratando erros com NaN
         df_year['home_score'] = pd.to_numeric(df_year['home_score'], errors='coerce').fillna(0)
         df_year['away_score'] = pd.to_numeric(df_year['away_score'], errors='coerce').fillna(0)
         
-        # FILTRO CRÍTICO: Garante que apenas jogos JOGADOS (com scores > 0) sejam considerados.
         df_year = df_year[(df_year['home_score'] > 0) | (df_year['away_score'] > 0)].copy()
 
         if df_year.empty:
             st.warning(f"Nenhum jogo jogado encontrado no NFLverse para a temporada {year}.")
             return pd.DataFrame()
 
+        def standardize_abbr(abbr):
+            """Padroniza abreviações problemáticas (como WAS para WSH)."""
+            if abbr in ['WAS', 'WSH']:
+                return 'WSH'
+            return abbr
+
         def calculate_result(row):
             home_score = int(row['home_score'])
             away_score = int(row['away_score'])
             
+            home_team = standardize_abbr(row['home_team'])
+            away_team = standardize_abbr(row['away_team'])
+            
             # Garante que o time com mais pontos seja o Vencedor
             if home_score >= away_score:
-                winner_abbr, winner_pts = row['home_team'], home_score
-                loser_abbr, loser_pts = row['away_team'], away_score
+                winner_abbr, winner_pts = home_team, home_score
+                loser_abbr, loser_pts = away_team, away_score
             else: 
-                winner_abbr, winner_pts = row['away_team'], away_score
-                loser_abbr, loser_pts = row['home_team'], home_score
+                winner_abbr, winner_pts = away_team, away_score
+                loser_abbr, loser_pts = home_team, home_score
             
-            # Trata casos de abreviação não padrão (como WSH/WAS)
-            winner_abbr = 'WSH' if winner_abbr in ['WAS', 'WSH'] else winner_abbr
-            loser_abbr = 'WSH' if loser_abbr in ['WAS', 'WSH'] else loser_abbr
-
             winner_name = get_team_display_name(winner_abbr)
             loser_name = get_team_display_name(loser_abbr)
 
@@ -122,7 +123,7 @@ def load_historical_events_from_nflverse(year):
                 loser_pts,
             ])
 
-        # Aplica a função para criar as novas colunas
+        # Aplica a função
         df_results = df_year.apply(calculate_result, axis=1)
         df_results.columns = ['Week', 'Date_Full', 'Winner_PFR', 'Winner_Abbr', 'Winner_Pts', 'Loser_PFR', 'Loser_Abbr', 'Loser_Pts']
         
@@ -160,6 +161,8 @@ def load_live_events_from_espn():
 
 def calculate_standings(df_games):
     """Calcula Vitórias, Derrotas, Empates e PCT para cada time."""
+    
+    # CRÍTICO: Inicializa o standings APENAS com times que estão no mapa de divisão (que é onde o erro ocorria)
     standings = {abbr: {'W': 0, 'L': 0, 'T': 0} for abbr in TEAM_CONFERENCE_DIVISION_MAP.keys()}
 
     for _, game in df_games.iterrows():
@@ -167,6 +170,11 @@ def calculate_standings(df_games):
         loser_abbr = game['Loser_Abbr']
         winner_pts = game['Winner_Pts']
         loser_pts = game['Loser_Pts']
+        
+        # Garante que as abreviações estão no standings antes de tentar atualizar
+        if winner_abbr not in standings or loser_abbr not in standings:
+            # Isso não deve acontecer após a correção da função load_historical_events, mas é uma segurança.
+            continue 
 
         if winner_pts > loser_pts:
             standings[winner_abbr]['W'] += 1
@@ -205,7 +213,7 @@ def display_standings(df_standings, conference_name):
     divisions = sorted(conf_df['Div'].unique())
 
     for div in divisions:
-        st.caption(f"**Divisão {div}**") # Usando st.caption para sub-título
+        st.caption(f"**Divisão {div}**") 
         
         div_df = conf_df[conf_df['Div'] == div].copy()
         
@@ -214,7 +222,6 @@ def display_standings(df_standings, conference_name):
         
         display_cols = div_df[['Time', 'Abbr', 'W', 'L', 'T', 'PCT_Str']]
         
-        # Ajustado para usar apenas colunas essenciais
         st.dataframe(
             display_cols.rename(columns={'Abbr': 'Abbr.', 'W': 'V', 'L': 'D', 'T': 'E', 'PCT_Str': 'PCT'}),
             hide_index=True,
@@ -230,7 +237,7 @@ def display_standings(df_standings, conference_name):
         )
 
 def display_scoreboard(df_pfr, current_week_espn=None):
-    """Exibe o placar formatado usando st.columns, st.image e st.metric."""
+    """Exibe o placar formatado usando st.columns, st.image e st.metric de forma compacta."""
 
     if df_pfr.empty:
         st.warning("Não há dados históricos disponíveis para exibição do placar.")
@@ -275,7 +282,7 @@ def display_scoreboard(df_pfr, current_week_espn=None):
                     with st.container(border=True):
                         st.caption(f"{game['Date_Full']}")
                         
-                        # Layout do placar dentro do card (3 colunas internas mais compactas)
+                        # Layout do placar dentro do card (5 colunas internas mais compactas)
                         col_w_img, col_w_score, col_v, col_l_score, col_l_img = st.columns([1.5, 1, 0.5, 1, 1.5])
 
                         # Vencedor
@@ -283,7 +290,7 @@ def display_scoreboard(df_pfr, current_week_espn=None):
                             st.image(get_logo_url(winner_abbr), width=35)
                             st.markdown(f"**{winner_abbr}**")
                         with col_w_score:
-                            st.subheader(str(winner_pts)) # Pontuação grande
+                            st.subheader(str(winner_pts)) 
                         
                         # Divisor
                         with col_v:
@@ -297,7 +304,7 @@ def display_scoreboard(df_pfr, current_week_espn=None):
                             st.image(get_logo_url(loser_abbr), width=35)
                             st.markdown(f"{loser_abbr}")
                         
-                        st.caption(":heavy_check_mark: **FINALIZADO**") # Status do jogo
+                        st.caption(":heavy_check_mark: **FINALIZADO**") 
 
 
 # --- CARREGAMENTO GLOBAL DE DADOS ---
@@ -308,7 +315,7 @@ current_week_espn, live_events = load_live_events_from_espn()
 
 # --- APLICAÇÃO PRINCIPAL (EXECUÇÃO) ---
 
-# Usando colunas para centralizar o conteúdo no layout 'wide'
+# Usando colunas para centralizar o conteúdo no layout 'wide' (fator 4 para o centro)
 col_left, col_center, col_right = st.columns([1, 4, 1]) 
 
 with col_center:
@@ -331,7 +338,6 @@ with col_center:
         st.header("🏆 Classificação da Temporada")
         
         # Exibe em colunas (lado a lado) a classificação
-        # Usando fatores menores para as colunas para que as tabelas fiquem compactas
         col_afc, col_nfc = st.columns([1, 1])
         
         with col_afc:
@@ -341,13 +347,13 @@ with col_center:
             display_standings(standings_data, 'NFC')
 
 
-        # 4. Filtro de semana
+        # 4. Filtro de semana (também centralizado)
         st.divider()
         st.header("Explorar Outras Semanas")
 
         all_weeks = sorted(historical_data['Week'].unique())
         
-        default_index = len(all_weeks) - 1 # Última semana como padrão
+        default_index = len(all_weeks) - 1
         if current_week_espn is not None and current_week_espn in all_weeks: 
             default_index = all_weeks.index(current_week_espn)
         elif all_weeks:
@@ -376,7 +382,6 @@ with col_center:
                     'Placar Final',
                 ]].rename(columns={'Date_Full': 'Data'})
                 
-                # Exibição tabular detalhada
                 st.dataframe(
                     df_final_view, 
                     hide_index=True, 
