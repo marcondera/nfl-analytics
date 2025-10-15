@@ -16,7 +16,7 @@ CURRENT_PFR_YEAR = 2025
 
 # Endpoints
 API_URL_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
-PFR_URL_TEMPLATE = f"https://www.pro-football-reference.com/years/{CURRENT_PFR_YEAR}/games.htm#games"
+PFR_URL_TEMPLATE = f"https://www.pro-football-reference.com/years/{CURRENT_PFR_YEAR}/games.htm"
 
 # Mapa de Logos e Abbr para PFR (necessário para mapear nomes do PFR para logos da ESPN)
 LOGO_MAP = {
@@ -72,6 +72,7 @@ def get_period_name(period):
 def load_historical_events_from_pfr(year):
     """
     Raspa o cronograma e resultados da temporada do Pro-Football-Reference.
+    A lógica foi tornada mais robusta para identificar colunas mesmo que os nomes mudem.
     """
     url = f"https://www.pro-football-reference.com/years/{year}/games.htm"
     st.info(f"Carregando histórico e cronograma completo da temporada {year} de Pro-Football-Reference...")
@@ -96,29 +97,58 @@ def load_historical_events_from_pfr(year):
             df = pd.read_html(table_html)[0]
 
 
-        df.columns = ['_'.join(col).strip() for col in df.columns.values]
-        
-        # Renomeação ajustada: A coluna da semana pode ter mudado. 
-        # Tenta identificar a coluna da semana pelo nome 'Week' ou 'Unnamed: 0_level_0_Week'
-        week_col = next((c for c in df.columns if 'Week' in c), None)
-        
-        if not week_col:
-            st.error("Coluna 'Week' não encontrada na tabela do PFR. O formato do site pode ter mudado.")
-            return []
+        # 1. Achata os cabeçalhos de coluna (MultiIndex) para strings únicas.
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = ['_'.join(col).strip() for col in df.columns.values]
+        else:
+            df.columns = [col.strip() for col in df.columns]
 
-        df = df.rename(columns={
-            week_col: 'Week', 
-            'Unnamed: 0_level_0_Day': 'Day',
-            'Unnamed: 0_level_0_Date': 'Date',
-            'Winner/tie_Unnamed: 3_level_1': 'Winner', 
-            'Loser/tie_Unnamed: 5_level_1': 'Loser', 
-            'PtsW_Unnamed: 7_level_1': 'PtsW',
-            'PtsL_Unnamed: 9_level_1': 'PtsL'
-        })
+        # 2. Mapeamento de colunas dinâmico (mais robusto)
+        column_map = {}
         
+        # Identifica a coluna 'Week' (Semana).
+        # Procura por colunas que contenham 'Week' e geralmente 'Unnamed'
+        original_week_col = next((c for c in df.columns if 'Week' in c and 'Unnamed' in c), None)
+        if not original_week_col:
+            # Fallback: procura apenas por 'Week'
+            original_week_col = next((c for c in df.columns if 'Week' in c), None)
+            
+        if not original_week_col:
+            st.error("Coluna 'Week' (Semana) não encontrada na tabela do PFR. O formato do site pode ter mudado drasticamente.")
+            return []
+            
+        # Adiciona a Week ao mapeamento
+        column_map[original_week_col] = 'Week'
+            
+        # Mapeamento das outras colunas essenciais, buscando o nome mais provável
+        original_day_col = next((c for c in df.columns if 'Day' in c and 'Unnamed' in c), None)
+        if original_day_col: column_map[original_day_col] = 'Day'
+        
+        original_date_col = next((c for c in df.columns if 'Date' in c and 'Unnamed' in c), None)
+        if original_date_col: column_map[original_date_col] = 'Date'
+
+        original_winner_col = next((c for c in df.columns if 'Winner' in c and 'tie' in c), None)
+        if original_winner_col: column_map[original_winner_col] = 'Winner'
+
+        original_loser_col = next((c for c in df.columns if 'Loser' in c and 'tie' in c), None)
+        if original_loser_col: column_map[original_loser_col] = 'Loser'
+        
+        original_pts_w_col = next((c for c in df.columns if 'PtsW' in c), None)
+        if original_pts_w_col: column_map[original_pts_w_col] = 'PtsW'
+        
+        original_pts_l_col = next((c for c in df.columns if 'PtsL' in c), None)
+        if original_pts_l_col: column_map[original_pts_l_col] = 'PtsL'
+        
+        # Renomeia o DataFrame
+        df = df.rename(columns=column_map)
+
+        # Verificação final da Week (deve existir após o mapeamento)
+        if 'Week' not in df.columns:
+            st.error("Falha ao renomear a coluna da semana. O formato do PFR pode ter mudado.")
+            return []
+            
         # Limpeza e filtragem
         # Filtra linhas onde 'Week' não é um número (remove cabeçalhos repetidos e linhas vazias)
-        # O erro que você viu é por causa da linha abaixo: a coluna 'Week' deve ser validada antes.
         df = df.dropna(subset=['Week']).copy()
         
         # Converte a coluna 'Week' para string para poder filtrar o cabeçalho 'Week'
@@ -262,6 +292,27 @@ def parse_event_from_scoreboard(evt):
         }
     except Exception:
         return None
+
+# Função auxiliar para carregar dados atuais (não foi alterada, mantida por completude)
+def load_current_events_from_espn():
+    """Carrega dados em tempo real da ESPN e retorna um dicionário mapeado pela chave Away@Home."""
+    try:
+        response = requests.get(API_URL_SCOREBOARD, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Mapeia eventos para a chave "Away@Home"
+        events_map = {}
+        for event in data.get('events', []):
+            parsed_event = parse_event_from_scoreboard(event)
+            if parsed_event:
+                key = f"{parsed_event['away']}@{parsed_event['home']}"
+                events_map[key] = parsed_event
+        return events_map
+    except Exception as e:
+        st.error(f"Erro ao carregar dados em tempo real da ESPN: {e}")
+        return {}
+
 
 # --- LÓGICA DE COMBINAÇÃO E EXIBIÇÃO ---
 st.markdown(f"<h1>🏈 NFL Dashboard ({CURRENT_PFR_YEAR})</h1>", unsafe_allow_html=True)
