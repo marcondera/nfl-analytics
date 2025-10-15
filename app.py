@@ -1,5 +1,3 @@
-vc mudou o código, era esse..
-
 import streamlit as st
 import pandas as pd
 import requests
