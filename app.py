@@ -13,7 +13,6 @@ CURRENT_PFR_YEAR = 2025
 # Configurações iniciais do Streamlit (título, layout)
 st.set_page_config(page_title=f"🏈 NFL Dashboard {CURRENT_PFR_YEAR}", layout="wide", page_icon="🏈")
 
-
 # Endpoints
 API_URL_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
 NFLVERSE_GAMES_URL = "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv"
@@ -253,7 +252,7 @@ def display_standings(df_standings, conference_name):
 def display_scoreboard(df_pfr, current_week_espn=None):
     """
     Exibe o placar formatado com HTML/CSS customizado para centralização
-    perfeita dos scores e um design moderno.
+    perfeita dos scores e um design moderno (usando Flexbox).
     """
 
     if df_pfr.empty:
@@ -287,13 +286,15 @@ def display_scoreboard(df_pfr, current_week_espn=None):
         border-radius: 12px;
         padding: 15px;
         margin-bottom: 20px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        transition: transform 0.2s;
-        background: #f8f9fa; /* Fundo claro para contraste */
+        /* Sombra mais suave */
+        box-shadow: 0 6px 15px rgba(0, 0, 0, 0.08); 
+        transition: transform 0.2s, box-shadow 0.2s;
+        background: #ffffff; /* Fundo branco puro para modernidade */
+        border: 1px solid #e9ecef; /* Borda sutil */
     }
     .scoreboard-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15);
+        transform: translateY(-3px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15); /* Sombra mais evidente no hover */
     }
     /* Layout principal com Flexbox para centralização horizontal e vertical */
     .game-layout {
@@ -303,33 +304,36 @@ def display_scoreboard(df_pfr, current_week_espn=None):
     }
     /* Estilo do Score do time vencedor */
     .score-winner {
-        font-size: 2.0em; /* Score grande */
-        font-weight: 700;
-        color: #1E90FF; /* Azul para o vencedor */
+        font-family: 'Inter', sans-serif; /* Fonte moderna */
+        font-size: 2.5em; /* Score grande e impactante */
+        font-weight: 900;
+        color: #007bff; /* Azul primário forte (moderno) */
         margin: 0;
-        padding: 0 10px;
-        line-height: 1; /* Alinhamento vertical forçado */
+        padding: 0 15px;
+        line-height: 1; 
     }
     /* Estilo do Score do time perdedor */
     .score-loser {
+        font-family: 'Inter', sans-serif;
         font-size: 2.0em;
         font-weight: 500;
-        color: #6c757d; /* Cinza para o perdedor */
+        color: #adb5bd; /* Cinza claro para o perdedor */
         margin: 0;
-        padding: 0 10px;
+        padding: 0 15px;
         line-height: 1;
     }
-    /* Container central (Scores + VS) */
+    /* Container central (Scores + VS) - CHAVE PARA A CENTRALIZAÇÃO */
     .score-container {
         display: flex;
         align-items: center;
-        justify-content: center; /* CENTRALIZAÇÃO DOS SCORES */
-        flex-grow: 1; /* Ocupa o espaço central */
+        justify-content: center; /* CENTRALIZAÇÃO PERFEITA */
+        flex-grow: 1; /* Ocupa o espaço central disponível */
+        min-width: 120px; /* Garante que tenha espaço para centralizar */
     }
     .vs-text {
         font-size: 1.2em;
-        font-weight: 800;
-        color: #dc3545; /* Vermelho vibrante */
+        font-weight: 700;
+        color: #6c757d; /* Cinza escuro para o VS */
         margin: 0 5px;
     }
     /* Info do time (logo + sigla) */
@@ -339,74 +343,97 @@ def display_scoreboard(df_pfr, current_week_espn=None):
         align-items: center;
         text-align: center;
         width: 30%; /* Controla a largura das colunas laterais */
+        min-width: 80px; /* Mínimo para visualização em mobile */
     }
     .team-info img {
-        width: 45px;
-        height: 45px;
+        width: 50px; /* Logo maior */
+        height: 50px;
         border-radius: 50%;
         margin-bottom: 5px;
-        background: white; /* Fundo branco para logos com transparência */
-        padding: 3px;
+        background: #f8f9fa; 
+        padding: 2px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
     }
     .team-info strong {
-        font-size: 1.1em;
-        line-height: 1;
+        font-size: 1.0em;
+        line-height: 1.2;
+        color: #343a40;
     }
     /* Status (Finalizado) */
     .status-final {
-        text-align: right;
-        font-size: 0.9em;
+        text-align: center; /* Centraliza a info de status */
+        font-size: 0.85em;
         color: #198754;
         font-weight: bold;
         margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px solid #f8f9fa;
     }
     .game-date {
+        text-align: center;
         font-size: 0.8em;
         color: #6c757d;
         margin-bottom: 10px;
         border-bottom: 1px dashed #e9ecef;
         padding-bottom: 5px;
     }
+    /* Ajuste para telas menores */
+    @media (max-width: 600px) {
+        .score-winner, .score-loser {
+            font-size: 1.8em; 
+            padding: 0 8px;
+        }
+        .vs-text {
+            font-size: 1.0em;
+        }
+        .team-info img {
+            width: 40px;
+            height: 40px;
+        }
+    }
     </style>
     """
     st.markdown(SCOREBOARD_CSS, unsafe_allow_html=True)
     
-    num_cols = 3
+    num_cols = 3 # 3 cards por linha em desktop
     
+    # Em telas menores, o Streamlit naturalmente usará 1 coluna, mas o CSS garante o alinhamento
     for i in range(0, len(games_list), num_cols):
-        cols = st.columns(num_cols)
+        # O Streamlit lida com o responsive, mas usaremos 3 colunas para desktop
+        cols = st.columns(num_cols) 
         
         for j in range(num_cols):
             game_index = i + j
             if game_index < len(games_list):
                 game = games_list[game_index]
                 
+                # Determina quem é o vencedor e perdedor apenas para aplicar o estilo CSS
                 winner_abbr = game['Winner_Abbr']
                 loser_abbr = game['Loser_Abbr']
                 winner_pts = int(game['Winner_Pts'])
                 loser_pts = int(game['Loser_Pts'])
                 
-                # HTML para o cartão de placar moderno
+                # HTML para o cartão de placar moderno e CENTRALIZADO
                 game_html = f"""
                 <div class="scoreboard-card">
                     <div class="game-date">
                         🗓️ {game['Date_Full']}
                     </div>
                     <div class="game-layout">
-                        <!-- Vencedor -->
+                        <!-- Time VENCEDOR (Esquerda) -->
                         <div class="team-info">
                             <img src="{get_logo_url(winner_abbr)}" alt="{winner_abbr} Logo">
                             <strong>{winner_abbr}</strong>
                         </div>
 
-                        <!-- Scores CENTRALIZADOS com Flexbox -->
+                        <!-- Scores CENTRALIZADOS (Meio) -->
                         <div class="score-container">
                             <span class="score-winner">{winner_pts}</span>
                             <span class="vs-text">VS</span>
                             <span class="score-loser">{loser_pts}</span>
                         </div>
 
-                        <!-- Perdedor -->
+                        <!-- Time PERDEDOR (Direita) -->
                         <div class="team-info">
                             <img src="{get_logo_url(loser_abbr)}" alt="{loser_abbr} Logo">
                             <strong>{loser_abbr}</strong>
@@ -431,6 +458,7 @@ current_week_espn, live_events = load_live_events_from_espn()
 # --- APLICAÇÃO PRINCIPAL (EXECUÇÃO) ---
 
 # Usando colunas para centralizar o conteúdo principal no layout 'wide'
+# As colunas laterais vazias empurram o conteúdo central para o meio da tela.
 col_left, col_center, col_right = st.columns([0.1, 4, 0.1]) 
 
 with col_center:
@@ -441,7 +469,7 @@ with col_center:
     if historical_data.empty:
         st.error("O processamento não retornou dados. Verifique as mensagens de erro/aviso acima.")
     else:
-        # 2. Exibe o placar
+        # 2. Exibe o placar (agora com o HTML/CSS centralizado)
         display_scoreboard(historical_data, current_week_espn)
         
         st.divider()
@@ -490,7 +518,6 @@ with col_center:
             if not df_selected_week.empty:
                 st.subheader(f"Resultados Detalhados da Semana :red[{selected_week}] ({CURRENT_PFR_YEAR})")
                 
-                # A formatação de texto está correta agora (sem os códigos de cor literais)
                 df_selected_week['Placar Final'] = df_selected_week.apply(
                     lambda row: f"**{row['Winner_PFR']}** ({int(row['Winner_Pts'])}) venceu {row['Loser_PFR']} ({int(row['Loser_Pts'])})", 
                     axis=1
