@@ -11,7 +11,6 @@ from io import StringIO
 CURRENT_PFR_YEAR = 2025 
 
 # Configurações iniciais do Streamlit (título, layout)
-# Usando 'wide' com colunas para forçar a centralização do conteúdo principal.
 st.set_page_config(page_title=f"🏈 NFL Dashboard {CURRENT_PFR_YEAR}", layout="wide", page_icon="🏈")
 
 
@@ -78,11 +77,13 @@ def load_historical_events_from_nflverse(year):
         
         df = pd.read_csv(StringIO(response.text))
         
+        # Garante que estamos filtrando pelo ano correto (2025)
         df_year = df[(df['season'] == year) & (df['game_type'] == 'REG')].copy()
         
         df_year['home_score'] = pd.to_numeric(df_year['home_score'], errors='coerce').fillna(0)
         df_year['away_score'] = pd.to_numeric(df_year['away_score'], errors='coerce').fillna(0)
         
+        # Filtra jogos que tenham algum score (evita jogos futuros/cancelados sem pontuação)
         df_year = df_year[(df_year['home_score'] > 0) | (df_year['away_score'] > 0)].copy()
 
         if df_year.empty:
@@ -93,10 +94,9 @@ def load_historical_events_from_nflverse(year):
             """Padroniza abreviações problemáticas (ex: WAS para WSH)."""
             if abbr in ['WAS', 'WSH']:
                 return 'WSH'
-            # Garante que qualquer abreviação não mapeada seja tratada
             if abbr not in TEAM_CONFERENCE_DIVISION_MAP:
-                 st.warning(f"Abreviação não reconhecida: {abbr}. Este time pode não aparecer na classificação.")
-                 return None
+                 # Esta abreviação não é de um time da NFL (pode ser de jogos antigos/pro-bowl/etc)
+                 return None 
             return abbr
 
         def calculate_result(row):
@@ -106,15 +106,16 @@ def load_historical_events_from_nflverse(year):
             home_team = standardize_abbr(row['home_team'])
             away_team = standardize_abbr(row['away_team'])
             
-            # Se alguma abreviação for None (não reconhecida), pula
             if home_team is None or away_team is None:
                 return pd.Series([None] * 8)
             
-            # Garante que o time com mais pontos seja o Vencedor
+            # Garante que o time com maior pontuação é o vencedor.
             if home_score >= away_score:
                 winner_abbr, winner_pts = home_team, home_score
                 loser_abbr, loser_pts = away_team, away_score
             else: 
+                # Isso não deve acontecer se a lógica de home_score/away_score estiver correta,
+                # mas é uma garantia.
                 winner_abbr, winner_pts = away_team, away_score
                 loser_abbr, loser_pts = home_team, home_score
             
@@ -132,11 +133,9 @@ def load_historical_events_from_nflverse(year):
                 loser_pts,
             ])
 
-        # Aplica a função
         df_results = df_year.apply(calculate_result, axis=1)
         df_results.columns = ['Week', 'Date_Full', 'Winner_PFR', 'Winner_Abbr', 'Winner_Pts', 'Loser_PFR', 'Loser_Abbr', 'Loser_Pts']
         
-        # Remove linhas onde a abreviação não foi reconhecida (Winner_Abbr é None)
         df_results = df_results.dropna(subset=['Winner_Abbr', 'Week'])
         
         df_results['Week'] = pd.to_numeric(df_results['Week'], errors='coerce').astype('Int64')
@@ -155,19 +154,20 @@ def load_historical_events_from_nflverse(year):
 
 @st.cache_data(ttl=600)
 def load_live_events_from_espn():
-    """Carrega o scoreboard atual da ESPN para verificar a semana ativa."""
+    """Carrega o scoreboard atual da ESPN para verificar a semana ativa (Ano 2025 já no URL base)."""
     try:
-        response = requests.get(API_URL_SCOREBOARD)
+        # A URL não precisa do ano, o endpoint da ESPN é para a temporada atual.
+        response = requests.get(API_URL_SCOREBOARD) 
         response.raise_for_status()
         data = response.json()
         
+        # Extrai a semana da resposta da ESPN
         week_name = data.get('week', {}).get('text', 'Semana Atual Não Definida')
         current_week = int(re.search(r'\d+', week_name).group()) if re.search(r'\d+', week_name) else None
         
         return current_week, data.get('events', [])
-    except Exception as e:
-        # Não é um erro crítico, apenas um aviso
-        st.warning(f"⚠️ Não foi possível carregar a semana atual da ESPN. Usando a última semana da base histórica.")
+    except Exception:
+        # Erro não crítico, apenas usa a base histórica
         return None, []
 
 # --- FUNÇÕES DE CLASSIFICAÇÃO E EXIBIÇÃO ---
@@ -183,20 +183,14 @@ def calculate_standings(df_games):
         winner_pts = game['Winner_Pts']
         loser_pts = game['Loser_Pts']
         
-        # Garante que as abreviações estão no standings (já filtrado na função de load)
         if winner_abbr in standings and loser_abbr in standings:
             if winner_pts > loser_pts:
                 standings[winner_abbr]['W'] += 1
                 standings[loser_abbr]['L'] += 1
-            elif winner_pts < loser_pts:
-                # Na nossa lógica, o time com maior score é o Winner_Abbr.
-                # Se for empate, é T. Se o score for menor, há um erro lógico no load.
-                # O bloco abaixo é uma segurança para empates.
-                standings[winner_abbr]['W'] += 1 # Mantém a lógica W/L
-                standings[loser_abbr]['L'] += 1 
-            else: # Empate (Tie)
+            elif winner_pts == loser_pts: # Empate (Tie)
                 standings[winner_abbr]['T'] += 1
                 standings[loser_abbr]['T'] += 1
+            # Se for menor, a lógica de W/L já foi garantida na função de load.
 
     df_standings = pd.DataFrame.from_dict(standings, orient='index').reset_index().rename(columns={'index': 'Abbr'})
     
@@ -216,7 +210,7 @@ def calculate_standings(df_games):
     return df_standings
 
 def display_standings(df_standings, conference_name):
-    """Exibe a classificação por divisão com um visual mais limpo."""
+    """Exibe a classificação por divisão com um visual mais limpo e organizado."""
     
     # Estilo visual melhorado: cores nos sub-títulos
     color_code = 'blue' if conference_name == 'AFC' else 'red'
@@ -254,7 +248,7 @@ def display_standings(df_standings, conference_name):
 def display_scoreboard(df_pfr, current_week_espn=None):
     """
     Exibe o placar formatado de forma compacta e com pontuações centralizadas
-    dentro de cada cartão de jogo.
+    dentro de cada cartão de jogo, focando na estética nativa.
     """
 
     if df_pfr.empty:
@@ -266,7 +260,6 @@ def display_scoreboard(df_pfr, current_week_espn=None):
         st.header(f"🗓️ Semana Atual: :green[{current_week_espn}]")
         df_display = df_pfr[df_pfr['Week'] == current_week_espn].copy()
         if df_display.empty:
-             # Se a semana atual da ESPN não tem jogos na base histórica, mostra a última jogada.
              max_week = df_pfr['Week'].max()
              st.subheader(f"⚠️ Sem jogos finalizados na Semana {current_week_espn}. Mostrando a última semana jogada: **{max_week}**.")
              df_display = df_pfr[df_pfr['Week'] == max_week].copy()
@@ -302,45 +295,39 @@ def display_scoreboard(df_pfr, current_week_espn=None):
                         # Data do Jogo no topo
                         st.caption(f":calendar: {game['Date_Full']}")
                         
-                        # Layout principal para centralizar scores
-                        # [Logo W | Score W | VS | Score L | Logo L] -> Proporções simétricas para centrar scores
-                        col_w_side, col_w_score, col_v, col_l_score, col_l_side = st.columns([1.5, 1, 0.5, 1, 1.5]) 
+                        # Layout principal para o placar: [Vencedor] | [Scores + VS] | [Perdedor]
+                        col_w_info, col_scores, col_l_info = st.columns([1.5, 2, 1.5]) 
 
-                        # VENCEDOR (Lado Esquerdo)
-                        with col_w_side:
-                            # Imagem centralizada na coluna
+                        # 1. Info Vencedor
+                        with col_w_info:
                             st.image(get_logo_url(winner_abbr), width=50)
-                            # Texto do time (alinhado à esquerda)
                             st.markdown(f"**{winner_abbr}**")
 
-                        # PLACAR VENCEDOR (Próximo ao centro)
-                        with col_w_score:
-                            # Tenta forçar o score para a direita (próximo ao 'vs')
-                            _, col_score_w = st.columns([0.1, 1])
+                        # 2. Scores Centralizados - USANDO COLUNAS INTERNAS SIMPLES PARA ALINHAMENTO
+                        with col_scores:
+                            # 3 Colunas: [Score W] | [VS] | [Score L]
+                            col_score_w, col_vs_text, col_score_l = st.columns([1, 0.3, 1])
+
                             with col_score_w:
-                                st.subheader(str(winner_pts)) 
+                                # Usar h3 ou h4 para forçar um tamanho maior e negrito
+                                st.subheader(str(winner_pts))
+                            
+                            with col_vs_text:
+                                st.text("")
+                                st.caption(":red[VS]")
+                                st.text("")
 
-                        # VS (Centro Absoluto)
-                        with col_v:
-                            st.text("") # Espaço para alinhar verticalmente
-                            st.caption(":vs:")
-                            st.text("")
-
-                        # PLACAR PERDEDOR (Próximo ao centro)
-                        with col_l_score:
-                             # Tenta forçar o score para a esquerda (próximo ao 'vs')
-                            col_score_l, _ = st.columns([1, 0.1])
                             with col_score_l:
                                 st.subheader(str(loser_pts))
-                        
-                        # PERDEDOR (Lado Direito)
-                        with col_l_side:
+                            
+                        # 3. Info Perdedor
+                        with col_l_info:
                             st.image(get_logo_url(loser_abbr), width=50)
                             st.markdown(f"{loser_abbr}")
                         
                         # Linha de status
                         st.divider()
-                        st.markdown(":heavy_check_mark: **FINALIZADO**", help="Resultado Oficial")
+                        st.markdown(":heavy_check_mark: **FINALIZADO**")
 
 
 # --- CARREGAMENTO GLOBAL DE DADOS ---
@@ -351,7 +338,7 @@ current_week_espn, live_events = load_live_events_from_espn()
 
 # --- APLICAÇÃO PRINCIPAL (EXECUÇÃO) ---
 
-# Usando colunas para centralizar o conteúdo no layout 'wide' (fator 4 para o centro)
+# Usando colunas para centralizar o conteúdo principal no layout 'wide'
 col_left, col_center, col_right = st.columns([1, 4, 1]) 
 
 with col_center:
@@ -371,7 +358,7 @@ with col_center:
         standings_data = calculate_standings(historical_data)
 
         st.header("🏆 Classificação da Temporada")
-        st.info("Veja a situação atual das conferências por divisão.")
+        st.info("Veja a situação atual das conferências por divisão. As cores do título (azul/vermelho) ajudam a identificar as conferências.")
         
         # Exibe em colunas (lado a lado) a classificação
         col_afc, col_nfc = st.columns([1, 1])
@@ -386,11 +373,12 @@ with col_center:
         # 4. Filtro de semana (também centralizado)
         st.header("Explorar Outras Semanas")
         st.markdown("Visualize os resultados detalhados de qualquer semana já jogada.")
-        st.text("") # Espaço
+        st.text("") 
 
         all_weeks = sorted(historical_data['Week'].unique())
         
         default_index = len(all_weeks) - 1
+        # Tenta usar a semana atual da ESPN como padrão, senão a última jogada.
         if current_week_espn is not None and current_week_espn in all_weeks: 
             default_index = all_weeks.index(current_week_espn)
         elif all_weeks:
@@ -401,7 +389,7 @@ with col_center:
             'Selecione a Semana para Visualizar os Resultados:',
             options=all_weeks,
             index=default_index,
-            key='week_selector' # Adicionado key para clareza
+            key='week_selector' 
         )
 
         if selected_week is not None:
@@ -410,8 +398,10 @@ with col_center:
             if not df_selected_week.empty:
                 st.subheader(f"Resultados Detalhados da Semana :red[{selected_week}] ({CURRENT_PFR_YEAR})")
                 
+                # CORREÇÃO: Removemos o markdown de cor (red/green) pois st.dataframe não o interpreta, 
+                # causando a exibição do texto literal. Usamos apenas texto formatado.
                 df_selected_week['Placar Final'] = df_selected_week.apply(
-                    lambda row: f"**{row['Winner_PFR']}** :green[{int(row['Winner_Pts'])}] - :red[{int(row['Loser_Pts'])}] **{row['Loser_PFR']}**", 
+                    lambda row: f"**{row['Winner_PFR']}** ({int(row['Winner_Pts'])}) venceu {row['Loser_PFR']} ({int(row['Loser_Pts'])})", 
                     axis=1
                 )
                 
