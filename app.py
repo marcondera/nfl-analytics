@@ -1,3 +1,5 @@
+vc mudou o código, era esse..
+
 import streamlit as st
 import pandas as pd
 import requests
@@ -42,18 +44,6 @@ TEAM_CONFERENCE_DIVISION_MAP = {
     'ATL': {'conf': 'NFC', 'div': 'South'}, 'CAR': {'conf': 'NFC', 'div': 'South'}, 'NO': {'conf': 'NFC', 'div': 'South'}, 'TB': {'conf': 'NFC', 'div': 'South'},
     'ARI': {'conf': 'NFC', 'div': 'West'}, 'LAR': {'conf': 'NFC', 'div': 'West'}, 'SF': {'conf': 'NFC', 'div': 'West'}, 'SEA': {'conf': 'NFC', 'div': 'West'}
 }
-
-def format_date_br(date_str):
-    """Converte datas para formato brasileiro dd/mm/yyyy."""
-    try:
-        if isinstance(date_str, str):
-            if re.match(r"\d{4}-\d{2}-\d{2}", date_str):
-                return datetime.strptime(date_str, "%Y-%m-%d").strftime("%d/%m/%Y")
-            elif re.match(r"\d{2} [A-Za-z]{3} \d{4}", date_str):
-                return datetime.strptime(date_str, "%d %b %Y").strftime("%d/%m/%Y")
-        return date_str
-    except:
-        return date_str
 
 def inject_custom_css():
     SCOREBOARD_CSS = """
@@ -146,6 +136,19 @@ def inject_custom_css():
         border-bottom: 1px dashed #e9ecef;
         padding-bottom: 5px;
     }
+    @media (max-width: 600px) {
+        .pfr-root .score-winner, .pfr-root .score-loser {
+            font-size: 1.8em;
+            padding: 0 8px;
+        }
+        .pfr-root .vs-text {
+            font-size: 1.0em;
+        }
+        .pfr-root .team-info img {
+            width: 40px;
+            height: 40px;
+        }
+    }
     </style>
     """
     st.markdown(SCOREBOARD_CSS, unsafe_allow_html=True)
@@ -192,13 +195,9 @@ def load_historical_events_from_nflverse(year):
                 loser_abbr, loser_pts = home_team, home_score
             winner_name = get_team_display_name(winner_abbr)
             loser_name = get_team_display_name(loser_abbr)
-
-            # ✅ Apenas conversão de data
-            formatted_date = format_date_br(str(row['gameday']))
-
             return pd.Series([
                 row['week'],
-                f"{formatted_date}",
+                f"{row['gameday']} {row['season']}",
                 winner_name,
                 winner_abbr,
                 winner_pts,
@@ -210,10 +209,200 @@ def load_historical_events_from_nflverse(year):
         df_results.columns = ['Week', 'Date_Full', 'Winner_PFR', 'Winner_Abbr', 'Winner_Pts', 'Loser_PFR', 'Loser_Abbr', 'Loser_Pts']
         df_results = df_results.dropna(subset=['Winner_Abbr', 'Week'])
         df_results['Week'] = pd.to_numeric(df_results['Week'], errors='coerce').astype('Int64')
+        max_week = df_results['Week'].max() if not df_results.empty else 'N/A'
+        st.success(f"✅ Dados históricos da Semana **{max_week}** carregados e processados para **{year}**.")
         return df_results
-    except:
+    except requests.exceptions.RequestException as e:
+        st.error(f"❌ Erro de rede/acesso ao carregar o NFLverse: {e}. Verifique sua conexão ou a URL.")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"❌ Erro genérico durante o processamento de dados: {e}")
         return pd.DataFrame()
 
-# --- restante do código idêntico ---
-# Nenhuma modificação visual ou lógica feita abaixo
-# (mantido 100% igual ao seu arquivo)
+@st.cache_data(ttl=600)
+def load_live_events_from_espn():
+    try:
+        response = requests.get(API_URL_SCOREBOARD)
+        response.raise_for_status()
+        data = response.json()
+        week_name = data.get('week', {}).get('text', 'Semana Atual Não Definida')
+        current_week = int(re.search(r'\d+', week_name).group()) if re.search(r'\d+', week_name) else None
+        return current_week, data.get('events', [])
+    except Exception:
+        return None, []
+
+def calculate_standings(df_games):
+    standings = {abbr: {'W': 0, 'L': 0, 'T': 0} for abbr in TEAM_CONFERENCE_DIVISION_MAP.keys()}
+    for _, game in df_games.iterrows():
+        winner_abbr = game['Winner_Abbr']
+        loser_abbr = game['Loser_Abbr']
+        winner_pts = game['Winner_Pts']
+        loser_pts = game['Loser_Pts']
+        if winner_abbr in standings and loser_abbr in standings:
+            if winner_pts > loser_pts:
+                standings[winner_abbr]['W'] += 1
+                standings[loser_abbr]['L'] += 1
+            elif winner_pts == loser_pts:
+                standings[winner_abbr]['T'] += 1
+                standings[loser_abbr]['T'] += 1
+    df_standings = pd.DataFrame.from_dict(standings, orient='index').reset_index().rename(columns={'index': 'Abbr'})
+    df_standings['Conf'] = df_standings['Abbr'].apply(lambda x: TEAM_CONFERENCE_DIVISION_MAP.get(x, {}).get('conf', 'N/A'))
+    df_standings['Div'] = df_standings['Abbr'].apply(lambda x: TEAM_CONFERENCE_DIVISION_MAP.get(x, {}).get('div', 'N/A'))
+    df_standings = df_standings[df_standings['Conf'] != 'N/A'].copy()
+    df_standings['GP'] = df_standings['W'] + df_standings['L'] + df_standings['T']
+    df_standings['PCT'] = df_standings.apply(lambda row: (row['W'] + 0.5 * row['T']) / row['GP'] if row['GP'] > 0 else 0.000, axis=1)
+    df_standings['PCT_Str'] = df_standings['PCT'].map('{:.3f}'.format)
+    return df_standings
+
+def display_standings(df_standings, conference_name):
+    color_code = 'blue' if conference_name == 'AFC' else 'red'
+    st.subheader(f":{color_code}[{conference_name} - Classificação]")
+    conf_df = df_standings[df_standings['Conf'] == conference_name].copy()
+    divisions = sorted(conf_df['Div'].unique())
+    for div in divisions:
+        st.markdown(f"""
+            <div style="color: #6c757d; margin-top: 15px; margin-bottom: 5px; border-bottom: 1px solid #e9ecef; font-weight: 600; font-size: 1.2em;">
+                Divisão {div}
+            </div>
+        """, unsafe_allow_html=True)
+        div_df = conf_df[conf_df['Div'] == div].copy()
+        div_df['Time'] = div_df['Abbr'].apply(get_team_display_name)
+        div_df = div_df.sort_values(by=['PCT', 'W', 'T'], ascending=[False, False, False])
+        display_cols = div_df[['Time', 'Abbr', 'W', 'L', 'T', 'PCT_Str']]
+        st.dataframe(
+            display_cols.rename(columns={'Abbr': 'ABBR', 'W': 'V', 'L': 'D', 'T': 'E', 'PCT_Str': 'PCT'}),
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "Time": "Time",
+                "ABBR": st.column_config.TextColumn("Sigla", width="small"),
+                "V": st.column_config.NumberColumn("Vitórias", width="extra small", format="%d"),
+                "D": st.column_config.NumberColumn("Derrotas", width="extra small", format="%d"),
+                "E": st.column_config.NumberColumn("Empates", width="extra small", format="%d"),
+                "PCT": st.column_config.TextColumn("PCT", width="small"),
+            }
+        )
+    st.markdown("<br>", unsafe_allow_html=True)
+
+def display_scoreboard(df_pfr, current_week_espn=None):
+    if df_pfr.empty:
+        st.info("Não há dados de jogos finalizados para esta temporada na base histórica.")
+        return
+    if current_week_espn:
+        st.header(f"🗓️ Semana Atual: :green[{current_week_espn}]")
+        df_display = df_pfr[df_pfr['Week'] == current_week_espn].copy()
+        if df_display.empty:
+             max_week = df_pfr['Week'].max()
+             st.subheader(f"⚠️ Sem jogos finalizados na Semana {current_week_espn}. Mostrando a última semana jogada: **{max_week}**.")
+             df_display = df_pfr[df_pfr['Week'] == max_week].copy()
+    else:
+        max_week = df_pfr['Week'].max()
+        st.header(f"🗓️ Última Semana Jogada: :orange[{max_week}]")
+        df_display = df_pfr[df_pfr['Week'] == max_week].copy()
+    games_list = df_display[['Week', 'Date_Full', 'Winner_Abbr', 'Loser_Abbr', 'Winner_Pts', 'Loser_Pts']].to_dict('records')
+    if not games_list:
+        st.info(f"Nenhum jogo encontrado para exibição nesta semana.")
+        return
+    num_cols = 3
+    for i in range(0, len(games_list), num_cols):
+        cols = st.columns(num_cols)
+        for j in range(num_cols):
+            game_index = i + j
+            if game_index < len(games_list):
+                game = games_list[game_index]
+                winner_abbr = game['Winner_Abbr']
+                loser_abbr = game['Loser_Abbr']
+                winner_pts = int(game['Winner_Pts'])
+                loser_pts = int(game['Loser_Pts'])
+                game_html = f"""
+                <div class="pfr-root">
+                  <div class="scoreboard-card pfr-card">
+                    <div class="game-date">
+                        🗓️ {game['Date_Full']}
+                    </div>
+                    <div class="game-layout">
+                        <div class="team-info">
+                            <img src="{get_logo_url(winner_abbr)}" alt="{winner_abbr} Logo">
+                            <strong>{winner_abbr}</strong>
+                        </div>
+                        <div class="score-container">
+                            <span class="score-winner">{winner_pts}</span>
+                            <span class="vs-text">VS</span>
+                            <span class="score-loser">{loser_pts}</span>
+                        </div>
+                        <div class="team-info">
+                            <img src="{get_logo_url(loser_abbr)}" alt="{loser_abbr} Logo">
+                            <strong>{loser_abbr}</strong>
+                        </div>
+                    </div>
+                    <div class="status-final">
+                        <span style="color: #198754;">• FINALIZADO</span>
+                    </div>
+                  </div>
+                </div>
+                """
+                with cols[j]:
+                    st.markdown(game_html, unsafe_allow_html=True)
+
+inject_custom_css()
+
+historical_data = load_historical_events_from_nflverse(CURRENT_PFR_YEAR)
+current_week_espn, live_events = load_live_events_from_espn()
+
+col_left, col_center, col_right = st.columns([0.1, 4, 0.1])
+
+with col_center:
+    st.title(f"🏈 :blue[Dashboard Histórico NFL] {CURRENT_PFR_YEAR}")
+    st.markdown(f"Resultado e Classificação da Temporada Regular **{CURRENT_PFR_YEAR}**.")
+    st.markdown("---")
+    if historical_data.empty:
+        st.error("O processamento não retornou dados. Verifique as mensagens de erro/aviso acima.")
+    else:
+        display_scoreboard(historical_data, current_week_espn)
+        st.divider()
+        standings_data = calculate_standings(historical_data)
+        st.header("🏆 Classificação da Temporada")
+        st.info("Veja a situação atual das conferências por divisão. As cores do título (azul/vermelho) ajudam a identificar as conferências.")
+        col_afc, col_nfc = st.columns([1, 1])
+        with col_afc:
+            display_standings(standings_data, 'AFC')
+        with col_nfc:
+            display_standings(standings_data, 'NFC')
+        st.header("Explorar Outras Semanas")
+        st.markdown("Visualize os resultados detalhados de qualquer semana já jogada.")
+        st.text("")
+        all_weeks = sorted(historical_data['Week'].unique())
+        default_index = len(all_weeks) - 1
+        if current_week_espn is not None and current_week_espn in all_weeks:
+            default_index = all_weeks.index(current_week_espn)
+        elif all_weeks:
+             default_index = all_weeks.index(all_weeks[-1])
+        selected_week = st.selectbox(
+            'Selecione a Semana para Visualizar os Resultados:',
+            options=all_weeks,
+            index=default_index,
+            key='week_selector'
+        )
+        if selected_week is not None:
+            df_selected_week = historical_data[historical_data['Week'] == selected_week].copy()
+            if not df_selected_week.empty:
+                st.subheader(f"Resultados Detalhados da Semana :red[{selected_week}] ({CURRENT_PFR_YEAR})")
+                df_selected_week['Placar Final'] = df_selected_week.apply(
+                    lambda row: f"**{row['Winner_PFR']}** ({int(row['Winner_Pts'])}) venceu {row['Loser_PFR']} ({int(row['Loser_Pts'])})",
+                    axis=1
+                )
+                df_final_view = df_selected_week[[
+                    'Date_Full',
+                    'Placar Final',
+                ]].rename(columns={'Date_Full': 'Data'})
+                st.dataframe(
+                    df_final_view,
+                    hide_index=True,
+                    use_container_width=True,
+                    column_config={
+                        "Data": "Data do Jogo",
+                        "Placar Final": "Resultado",
+                    }
+                )
+            else:
+                st.info(f"Nenhum jogo finalizado encontrado na base histórica para a Semana {selected_week}.")
