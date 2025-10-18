@@ -2,222 +2,189 @@ import streamlit as st
 import pandas as pd
 import requests
 from datetime import datetime
+import re
+from io import StringIO
 
-# -----------------------------------------------------------
-# 🔧 CONFIGURAÇÕES GERAIS
-# -----------------------------------------------------------
-st.set_page_config(page_title="NFL Dashboard 2025", layout="wide", page_icon="🏈")
-
+# ==============================
+# CONFIGURAÇÕES INICIAIS
+# ==============================
 CURRENT_PFR_YEAR = 2025
-NFLVERSE_GAMES_URL = "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv"
-API_URL_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
 
-# -----------------------------------------------------------
-# 🧠 MAPEAMENTOS BÁSICOS
-# -----------------------------------------------------------
+st.set_page_config(
+    page_title=f"🏈 NFL Dashboard {CURRENT_PFR_YEAR}",
+    layout="wide",
+    page_icon="🏈"
+)
+
+API_URL_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
+NFLVERSE_GAMES_URL = "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv"
+
+# ==============================
+# MAPAS E CONSTANTES
+# ==============================
 LOGO_MAP = {
-    "BUF": "buf", "MIA": "mia", "NYJ": "nyj", "NE": "ne",
-    "BAL": "bal", "CIN": "cin", "CLE": "cle", "PIT": "pit",
-    "HOU": "hou", "IND": "ind", "JAX": "jax", "TEN": "ten",
-    "DEN": "den", "KC": "kc", "LV": "lv", "LAC": "lac",
-    "DAL": "dal", "NYG": "nyg", "PHI": "phi", "WAS": "wsh",
-    "CHI": "chi", "DET": "det", "GB": "gb", "MIN": "min",
-    "ATL": "atl", "CAR": "car", "NO": "no", "TB": "tb",
-    "ARI": "ari", "LA": "lar", "SF": "sf", "SEA": "sea"
+    "SF": "sf", "BUF": "buf", "ATL": "atl", "BAL": "bal", "CAR": "car", "CIN": "cin",
+    "CHI": "chi", "CLE": "cle", "DAL": "dal", "DEN": "den", "DET": "det", "GB": "gb",
+    "HOU": "hou", "IND": "ind", "JAX": "jac", "KC": "kc", "LAC": "lac", "LAR": "lar",
+    "LV": "lv", "MIA": "mia", "MIN": "min", "NE": "ne", "NO": "no", "NYG": "nyg",
+    "NYJ": "nyj", "PHI": "phi", "PIT": "pit", "SEA": "sea", "TB": "tb", "TEN": "ten",
+    "ARI": "ari", "WAS": "wsh", "WSH": "wsh"
 }
 
 PFR_NAME_MAP_REVERSE = {
-    "BUF": "Buffalo Bills", "MIA": "Miami Dolphins", "NYJ": "New York Jets", "NE": "New England Patriots",
-    "BAL": "Baltimore Ravens", "CIN": "Cincinnati Bengals", "CLE": "Cleveland Browns", "PIT": "Pittsburgh Steelers",
-    "HOU": "Houston Texans", "IND": "Indianapolis Colts", "JAX": "Jacksonville Jaguars", "TEN": "Tennessee Titans",
-    "DEN": "Denver Broncos", "KC": "Kansas City Chiefs", "LV": "Las Vegas Raiders", "LAC": "Los Angeles Chargers",
-    "DAL": "Dallas Cowboys", "NYG": "New York Giants", "PHI": "Philadelphia Eagles", "WAS": "Washington Commanders",
-    "CHI": "Chicago Bears", "DET": "Detroit Lions", "GB": "Green Bay Packers", "MIN": "Minnesota Vikings",
-    "ATL": "Atlanta Falcons", "CAR": "Carolina Panthers", "NO": "New Orleans Saints", "TB": "Tampa Bay Buccaneers",
-    "ARI": "Arizona Cardinals", "LA": "Los Angeles Rams", "SF": "San Francisco 49ers", "SEA": "Seattle Seahawks"
+    'SF': '49ers', 'BUF': 'Bills', 'ATL': 'Falcons', 'BAL': 'Ravens', 'CAR': 'Panthers',
+    'CIN': 'Bengals', 'CHI': 'Bears', 'CLE': 'Browns', 'DAL': 'Cowboys', 'DEN': 'Broncos',
+    'DET': 'Lions', 'GB': 'Packers', 'HOU': 'Texans', 'IND': 'Colts', 'JAX': 'Jaguars',
+    'KC': 'Chiefs', 'LAC': 'Chargers', 'LAR': 'Rams', 'LV': 'Raiders', 'MIA': 'Dolphins',
+    'MIN': 'Vikings', 'NE': 'Patriots', 'NO': 'Saints', 'NYG': 'Giants', 'NYJ': 'Jets',
+    'PHI': 'Eagles', 'PIT': 'Steelers', 'SEA': 'Seahawks', 'TB': 'Buccaneers', 'TEN': 'Titans',
+    'ARI': 'Cardinals', 'WSH': 'Commanders'
 }
 
 TEAM_CONFERENCE_DIVISION_MAP = {
-    "BUF": ("AFC", "East"), "MIA": ("AFC", "East"), "NYJ": ("AFC", "East"), "NE": ("AFC", "East"),
-    "BAL": ("AFC", "North"), "CIN": ("AFC", "North"), "CLE": ("AFC", "North"), "PIT": ("AFC", "North"),
-    "HOU": ("AFC", "South"), "IND": ("AFC", "South"), "JAX": ("AFC", "South"), "TEN": ("AFC", "South"),
-    "DEN": ("AFC", "West"), "KC": ("AFC", "West"), "LV": ("AFC", "West"), "LAC": ("AFC", "West"),
-    "DAL": ("NFC", "East"), "NYG": ("NFC", "East"), "PHI": ("NFC", "East"), "WAS": ("NFC", "East"),
-    "CHI": ("NFC", "North"), "DET": ("NFC", "North"), "GB": ("NFC", "North"), "MIN": ("NFC", "North"),
-    "ATL": ("NFC", "South"), "CAR": ("NFC", "South"), "NO": ("NFC", "South"), "TB": ("NFC", "South"),
-    "ARI": ("NFC", "West"), "LA": ("NFC", "West"), "SF": ("NFC", "West"), "SEA": ("NFC", "West")
+    'BUF': {'conf': 'AFC', 'div': 'East'}, 'MIA': {'conf': 'AFC', 'div': 'East'}, 'NE': {'conf': 'AFC', 'div': 'East'}, 'NYJ': {'conf': 'AFC', 'div': 'East'},
+    'BAL': {'conf': 'AFC', 'div': 'North'}, 'CIN': {'conf': 'AFC', 'div': 'North'}, 'CLE': {'conf': 'AFC', 'div': 'North'}, 'PIT': {'conf': 'AFC', 'div': 'North'},
+    'HOU': {'conf': 'AFC', 'div': 'South'}, 'IND': {'conf': 'AFC', 'div': 'South'}, 'JAX': {'conf': 'AFC', 'div': 'South'}, 'TEN': {'conf': 'AFC', 'div': 'South'},
+    'DEN': {'conf': 'AFC', 'div': 'West'}, 'KC': {'conf': 'AFC', 'div': 'West'}, 'LV': {'conf': 'AFC', 'div': 'West'}, 'LAC': {'conf': 'AFC', 'div': 'West'},
+    'DAL': {'conf': 'NFC', 'div': 'East'}, 'NYG': {'conf': 'NFC', 'div': 'East'}, 'PHI': {'conf': 'NFC', 'div': 'East'}, 'WSH': {'conf': 'NFC', 'div': 'East'},
+    'CHI': {'conf': 'NFC', 'div': 'North'}, 'DET': {'conf': 'NFC', 'div': 'North'}, 'GB': {'conf': 'NFC', 'div': 'North'}, 'MIN': {'conf': 'NFC', 'div': 'North'},
+    'ATL': {'conf': 'NFC', 'div': 'South'}, 'CAR': {'conf': 'NFC', 'div': 'South'}, 'NO': {'conf': 'NFC', 'div': 'South'}, 'TB': {'conf': 'NFC', 'div': 'South'},
+    'ARI': {'conf': 'NFC', 'div': 'West'}, 'LAR': {'conf': 'NFC', 'div': 'West'}, 'SF': {'conf': 'NFC', 'div': 'West'}, 'SEA': {'conf': 'NFC', 'div': 'West'}
 }
 
-# -----------------------------------------------------------
-# 🎨 ESTILO
-# -----------------------------------------------------------
-def inject_custom_css():
+# ==============================
+# FUNÇÕES AUXILIARES
+# ==============================
+def get_logo_url(abbr):
+    a = LOGO_MAP.get(abbr.upper(), abbr.lower())
+    return f"https://a.espncdn.com/i/teamlogos/nfl/500/{a}.png"
+
+def get_team_display_name(abbr):
+    return PFR_NAME_MAP_REVERSE.get(abbr, abbr)
+
+# ==============================
+# CSS PERSONALIZADO
+# ==============================
+def inject_css():
     st.markdown("""
     <style>
-    .score-card {
-        background: #f9f9f9;
-        border-radius: 14px;
-        padding: 12px;
-        margin-bottom: 10px;
-        box-shadow: 0 0 6px rgba(0,0,0,0.1);
-        text-align: center;
+    .scoreboard-card {
+        border-radius: 12px;
+        padding: 15px;
+        margin-bottom: 20px;
+        background: #fff;
+        border: 1px solid #eaeaea;
+        box-shadow: 0 3px 8px rgba(0,0,0,0.05);
     }
-    .winner { color: #198754; font-weight: bold; }
-    .loser { color: #6c757d; }
-    .status { font-size: 0.8em; color: #999; margin-top: 4px; }
+    .team-info { text-align: center; }
+    .team-info img { width: 48px; height: 48px; border-radius: 50%; }
+    .score { font-size: 2em; font-weight: bold; }
+    .status { font-size: 0.85em; color: #198754; margin-top: 8px; }
     </style>
     """, unsafe_allow_html=True)
 
-inject_custom_css()
-
-# -----------------------------------------------------------
-# 📦 FUNÇÕES DE DADOS
-# -----------------------------------------------------------
+# ==============================
+# FUNÇÕES DE CARGA DE DADOS
+# ==============================
 @st.cache_data(ttl=3600)
-def load_historical_events_from_nflverse():
-    df = pd.read_csv(NFLVERSE_GAMES_URL)
-    df = df[df['season'] == CURRENT_PFR_YEAR].copy()
-    df = df[["week", "game_date", "home_team", "away_team", "home_score", "away_score"]]
-    df.rename(columns={"week": "Week"}, inplace=True)
-    df["game_date"] = pd.to_datetime(df["game_date"], errors="coerce")
-    # Não filtra por pontuação — permite jogos ainda não finalizados
-    return df
+def load_historical(year):
+    try:
+        r = requests.get(NFLVERSE_GAMES_URL, timeout=10)
+        r.raise_for_status()
+        df = pd.read_csv(StringIO(r.text))
+        df = df[(df['season'] == year) & (df['game_type'] == 'REG')]
+        df['home_score'] = pd.to_numeric(df['home_score'], errors='coerce')
+        df['away_score'] = pd.to_numeric(df['away_score'], errors='coerce')
+
+        df = df.dropna(subset=['home_team', 'away_team'])
+        df['Week'] = pd.to_numeric(df['week'], errors='coerce').astype('Int64')
+
+        results = []
+        for _, row in df.iterrows():
+            home, away = row['home_team'], row['away_team']
+            hs, as_ = row['home_score'], row['away_score']
+
+            if pd.isna(hs) or pd.isna(as_):
+                continue  # ignora jogo sem placar
+
+            winner, loser = (home, away) if hs >= as_ else (away, home)
+            winner_pts, loser_pts = (hs, as_) if hs >= as_ else (as_, hs)
+            results.append({
+                "Week": int(row['week']),
+                "Date_Full": f"{row['gameday']} {year}",
+                "Winner_Abbr": winner,
+                "Loser_Abbr": loser,
+                "Winner_Pts": int(winner_pts),
+                "Loser_Pts": int(loser_pts)
+            })
+
+        return pd.DataFrame(results)
+    except Exception as e:
+        st.error(f"Erro ao carregar dados históricos: {e}")
+        return pd.DataFrame()
 
 @st.cache_data(ttl=600)
-def load_live_events_from_espn():
-    response = requests.get(API_URL_SCOREBOARD)
-    data = response.json()
-    current_week = data.get("week", {}).get("number", None)
-    events = data.get("events", [])
-    return current_week, events
+def load_live():
+    try:
+        r = requests.get(API_URL_SCOREBOARD, timeout=10)
+        data = r.json()
+        week = data.get('week', {}).get('number', None)
+        return week, data.get('events', [])
+    except Exception:
+        return None, []
 
-def get_logo_url(team_abbr):
-    if team_abbr not in LOGO_MAP:
-        return ""
-    code = LOGO_MAP[team_abbr]
-    return f"https://a.espncdn.com/i/teamlogos/nfl/500/{code}.png"
-
-# -----------------------------------------------------------
-# 🏈 EXIBIÇÃO DOS JOGOS
-# -----------------------------------------------------------
-def display_scoreboard(df_pfr, current_week, events):
-    st.header(f"📅 Semana Atual: {current_week}")
-
-    df_week = df_pfr[df_pfr["Week"] == current_week].copy()
-
-    # Se ainda não há dados históricos — mostrar agendados
-    if df_week.empty:
-        st.info(f"ℹ️ A semana {current_week} ainda está em andamento. Mostrando jogos agendados:")
-        display_future_games(events)
-        return
-
-    cols = st.columns(3)
-    for i, (_, row) in enumerate(df_week.iterrows()):
-        home, away = row["home_team"], row["away_team"]
-        home_score = row["home_score"]
-        away_score = row["away_score"]
-        date = row["game_date"].strftime("%d/%m")
-
-        home_logo = get_logo_url(home)
-        away_logo = get_logo_url(away)
-
-        result_home = ""
-        result_away = ""
-        if pd.notna(home_score) and pd.notna(away_score):
-            if home_score > away_score:
-                result_home = "winner"
-                result_away = "loser"
-            elif home_score < away_score:
-                result_home = "loser"
-                result_away = "winner"
-
-        with cols[i % 3]:
-            st.markdown(f"""
-            <div class="score-card">
-                <img src="{away_logo}" width="40"> <span class="{result_away}">{away_score if pd.notna(away_score) else '-'}</span>
-                <br>
-                <img src="{home_logo}" width="40"> <span class="{result_home}">{home_score if pd.notna(home_score) else '-'}</span>
-                <div class="status">{date}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
+# ==============================
+# EXIBIÇÃO DE JOGOS
+# ==============================
 def display_future_games(events):
     if not events:
-        st.warning("Nenhum jogo futuro encontrado na API ESPN.")
+        st.info("Nenhum jogo futuro encontrado nesta semana.")
         return
-    cols = st.columns(3)
-    for i, e in enumerate(events):
-        comp = e.get("competitions", [{}])[0]
-        competitors = comp.get("competitors", [])
-        home = next((c for c in competitors if c.get("homeAway") == "home"), {})
-        away = next((c for c in competitors if c.get("homeAway") == "away"), {})
-        home_team = home.get("team", {}).get("abbreviation", "???")
-        away_team = away.get("team", {}).get("abbreviation", "???")
-        date = datetime.fromisoformat(comp.get("date").replace("Z", "+00:00")).strftime("%d/%m %H:%M")
-        home_logo = get_logo_url(home_team)
-        away_logo = get_logo_url(away_team)
+    for ev in events:
+        comps = ev.get("competitions", [{}])[0]
+        teams = comps.get("competitors", [])
+        if len(teams) == 2:
+            home = teams[0]
+            away = teams[1]
+            st.markdown(f"📅 {home['team']['displayName']} vs {away['team']['displayName']} - {ev.get('status', {}).get('type', {}).get('description', '')}")
 
+def display_scoreboard(df, week, live_events):
+    inject_css()
+    if df.empty:
+        st.warning("Nenhum dado histórico disponível.")
+        display_future_games(live_events)
+        return
+
+    dfw = df[df['Week'] == week]
+    if dfw.empty:
+        st.info(f"Semana {week} ainda sem resultados completos.")
+        display_future_games(live_events)
+        return
+
+    st.header(f"🗓️ Semana {week}")
+    cols = st.columns(3)
+    for i, row in enumerate(dfw.itertuples(), start=0):
         with cols[i % 3]:
             st.markdown(f"""
-            <div class="score-card">
-                <img src="{away_logo}" width="40"> @ <img src="{home_logo}" width="40">
-                <div class="status">Agendado: {date}</div>
+            <div class="scoreboard-card">
+              <div class="team-info"><img src="{get_logo_url(row.Winner_Abbr)}"><br><b>{row.Winner_Abbr}</b></div>
+              <div class="score">{row.Winner_Pts} - {row.Loser_Pts}</div>
+              <div class="team-info"><img src="{get_logo_url(row.Loser_Abbr)}"><br><b>{row.Loser_Abbr}</b></div>
+              <div class="status">FINALIZADO</div>
             </div>
             """, unsafe_allow_html=True)
 
-# -----------------------------------------------------------
-# 🧮 CLASSIFICAÇÃO
-# -----------------------------------------------------------
-def calculate_standings(df):
-    df_results = df.dropna(subset=["home_score", "away_score"]).copy()
-    standings = {}
-    for _, row in df_results.iterrows():
-        home, away = row["home_team"], row["away_team"]
-        hs, as_ = row["home_score"], row["away_score"]
-        if home not in standings:
-            standings[home] = {"W": 0, "L": 0, "T": 0}
-        if away not in standings:
-            standings[away] = {"W": 0, "L": 0, "T": 0}
-        if hs > as_:
-            standings[home]["W"] += 1
-            standings[away]["L"] += 1
-        elif hs < as_:
-            standings[home]["L"] += 1
-            standings[away]["W"] += 1
-        else:
-            standings[home]["T"] += 1
-            standings[away]["T"] += 1
-    df_stand = pd.DataFrame([
-        {"Team": t, **rec, "PCT": (rec["W"] + 0.5 * rec["T"]) / max(1, rec["W"] + rec["L"] + rec["T"])}
-        for t, rec in standings.items()
-    ])
-    df_stand["Conference"] = df_stand["Team"].map(lambda x: TEAM_CONFERENCE_DIVISION_MAP.get(x, ("", ""))[0])
-    df_stand["Division"] = df_stand["Team"].map(lambda x: TEAM_CONFERENCE_DIVISION_MAP.get(x, ("", ""))[1])
-    return df_stand.sort_values(["Conference", "Division", "PCT"], ascending=[True, True, False])
+# ==============================
+# APP PRINCIPAL
+# ==============================
+st.title(f"🏈 Dashboard NFL {CURRENT_PFR_YEAR}")
+st.markdown("Acompanhe os resultados e classificações atualizados em tempo real (ESPN + NFLverse).")
+st.divider()
 
-def display_standings(df_stand):
-    st.header("🏆 Classificação")
-    for conf in ["AFC", "NFC"]:
-        st.subheader(f"{conf}")
-        conf_df = df_stand[df_stand["Conference"] == conf]
-        st.dataframe(conf_df[["Team", "W", "L", "T", "PCT", "Division"]], use_container_width=True)
+hist = load_historical(CURRENT_PFR_YEAR)
+week_now, live_events = load_live()
 
-# -----------------------------------------------------------
-# 🚀 MAIN
-# -----------------------------------------------------------
-def main():
-    st.title("🏈 NFL Dashboard 2025")
-
-    df_pfr = load_historical_events_from_nflverse()
-    current_week, events = load_live_events_from_espn()
-
-    if not current_week:
-        st.error("Não foi possível obter a semana atual da ESPN.")
-        return
-
-    display_scoreboard(df_pfr, current_week, events)
-    df_stand = calculate_standings(df_pfr)
-    display_standings(df_stand)
-
-if __name__ == "__main__":
-    main()
+if week_now is None:
+    st.error("Falha ao obter semana atual via API ESPN.")
+else:
+    display_scoreboard(hist, week_now, live_events)
