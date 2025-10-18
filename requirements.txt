@@ -1,3 +1,16 @@
+# Core Framework
 streamlit==1.39.0
-pandas==2.2.2
-requests==2.31.0
+
+# Data Handling
+pandas==2.2.3
+numpy==1.26.4
+
+# API & Requests
+requests==2.32.3
+urllib3==2.2.3
+
+# Date Handling
+python-dateutil==2.9.0.post0
+
+# Optional (melhora cache e compatibilidade)
+cachetools==5.5.0
