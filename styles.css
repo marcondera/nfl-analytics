@@ -1,0 +1,84 @@
+/* styles.css - Custom CSS para Streamlit (replicando a aparência do Flask/Bootstrap) */
+
+/* Estilos de Card (pfr-root é o container para aplicar o CSS) */
+.pfr-root .scoreboard-card {
+    border-radius: 12px;
+    padding: 15px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s, box-shadow 0.2s;
+    background: #ffffff;
+    border: 1px solid #e9ecef;
+}
+.pfr-root .scoreboard-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15);
+}
+.pfr-root .game-layout {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* Estilos de Placar */
+.pfr-root .score-winner {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #0d6efd; /* Azul principal */
+}
+.pfr-root .score-loser {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #dc3545; /* Vermelho/perdedor */
+}
+.pfr-root .vs-text {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #6c757d;
+    margin: 0 10px;
+}
+
+/* Estilos de Time */
+.pfr-root .team-info {
+    text-align: center;
+    min-width: 80px;
+}
+.pfr-root .team-info img {
+    width: 40px;
+    height: 40px;
+    margin-bottom: 5px;
+}
+
+/* Estilos de Status */
+.pfr-root .game-date {
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin-bottom: 10px;
+    text-align: center;
+}
+.pfr-root .status-live {
+    font-weight: bold;
+    color: #ffc107;
+    animation: blinker 1s linear infinite;
+}
+@keyframes blinker {
+    50% { opacity: 0; }
+}
+.pfr-root .status-final {
+    text-align: center;
+    font-weight: 500;
+    font-size: 0.9rem;
+    margin-top: 10px;
+}
+
+/* Ajustes Streamlit (para headings e botões) */
+.stMarkdown h2 {
+    border-bottom: 2px solid #0d6efd;
+    padding-bottom: 5px;
+    margin-top: 20px;
+}
+/* Altera o estilo do botão de destaque para o vermelho do YouTube */
+div[data-testid="stMarkdownContainer"] a.btn-danger {
+    background-color: #dc3545 !important;
+    border-color: #dc3545 !important;
+}
